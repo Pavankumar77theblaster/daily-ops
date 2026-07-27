@@ -1,5 +1,5 @@
 /* Daily Ops service worker — offline-first cache for the installed app. */
-const CACHE = 'dailyops-v4.1';
+const CACHE = 'dailyops-v5';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
