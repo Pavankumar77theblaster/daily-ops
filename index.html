@@ -1811,11 +1811,11 @@ function renderSettings() {
     <div class="data-actions">
       <button class="btn" data-act="export">${ic('down')} Export backup</button>
       <button class="btn" data-act="import">${ic('up')} Import backup</button>
-      <button class="btn" data-act="xfer-copy">${ic('phone')} Copy transfer code</button>
+      <button class="btn btn-acc" data-act="open-sync">${ic('phone')} Sync to another device</button>
       <button class="btn" data-act="xfer-open">Enter transfer code</button>
       <button class="btn btn-danger" data-act="reset">Reset everything</button>
     </div>
-    <p class="note-dim">Transfer codes move everything phone ↔ laptop with one paste — no files needed.</p>
+    <p class="note-dim">Sync gives you a link (when hosted) or a code to move everything phone ↔ laptop — no account, no upload, nothing leaves your devices.</p>
     <p class="note-dim">Last manual backup: <span class="mono">${S.settings.lastExport ? fmtShort(ymd(new Date(S.settings.lastExport))) : 'never'}</span>${backupDue() ? ' — <span style="color:var(--warn)">overdue</span>' : ''}</p>
     ${backupBoxHTML()}
     <p class="note-dim">Data lives in this browser's localStorage, tied to this address — nothing leaves your machine. A linked backup file (above) mirrors every change so a cleared cache or a new browser can't wipe you; manual Export / Import still work for moving between machines. Import and reset are undoable from the toast.</p>
@@ -1868,6 +1868,7 @@ function openSearch() {
     { label: 'Statistics', cmd: 'stats' },
     { label: 'Settings', cmd: 'settings' },
     { label: 'Week view', cmd: 'week' },
+    { label: 'Sync to another device', cmd: 'sync' },
     { label: 'EOD log for today', cmd: 'eod' },
     { label: 'Plan a task', cmd: 'plan' },
     { label: 'Export backup', cmd: 'export' },
@@ -2202,6 +2203,41 @@ async function unpackState(code) {
   }
   return normalize(JSON.parse(new TextDecoder().decode(bytes)));
 }
+/* Build a full URL that carries the state in its fragment. Opening it on
+   another device loads that state directly — the effortless path when the
+   app is hosted (same origin on both devices). */
+async function syncURL() {
+  const code = await packState();               // DOPS0/DOPS2 string
+  const base = location.origin + location.pathname;
+  return base + '#/sync=' + encodeURIComponent(code);
+}
+
+/* Apply a transfer code to this device, with confirmation + undo. */
+function importFromCode(code, how) {
+  unpackState(code).then(restored => {
+    const hadData = Object.keys(S.days).length > 0 || S.templates.length !== 11;
+    const proceed = () => {
+      const undo = snapshotUndo();
+      S = restored; persist(); applyAccent(); go('/'); route();
+      toast('Imported ' + Object.keys(S.days).length + ' day(s)' + (how === 'link' ? ' from the link' : ''), { undo, ms: 4000 });
+    };
+    if (!hadData) { proceed(); return; }
+    /* This device already has data — ask before overwriting. */
+    closeOverlay();
+    overlays.innerHTML = `<div class="ov" role="dialog" aria-label="Confirm import">
+      <div class="ov-panel eod-panel">
+        <div class="card-h"><span class="eyebrow">Import & replace?</span></div>
+        <p class="note-dim" style="margin-top:0">This will replace what's on <strong>this device</strong> with the incoming data (${Object.keys(restored.days).length} day${Object.keys(restored.days).length === 1 ? '' : 's'}). You can undo it right after from the toast.</p>
+        <div class="data-actions" style="margin-top:12px">
+          <button class="btn btn-acc" data-act="sync-confirm">Replace with incoming</button>
+          <button class="btn" data-act="back-cal">Keep what's here</button>
+        </div>
+      </div></div>`;
+    pendingImport = restored;
+  }).catch(() => toast('That code wasn\u2019t recognised — copy it again in full'));
+}
+let pendingImport = null;
+
 function openTransfer() {
   closeOverlay();
   overlays.innerHTML = `<div class="ov" role="dialog" aria-label="Enter transfer code">
@@ -2215,6 +2251,42 @@ function openTransfer() {
   $('#xferTa').focus();
 }
 
+/* One panel for moving data between devices: a link (best when hosted) and
+   the raw code (works anywhere, including the offline single file). */
+function openSync() {
+  closeOverlay();
+  const hosted = /^https?:$/.test(location.protocol);
+  overlays.innerHTML = `<div class="ov" role="dialog" aria-label="Sync between devices">
+    <div class="ov-panel eod-panel">
+      <div class="card-h"><span class="eyebrow">Move data to another device</span></div>
+      <div id="syncBody"><p class="note-dim">Preparing…</p></div>
+    </div></div>`;
+  const body = $('#syncBody');
+  syncURL().then(url => {
+    const codePromise = packState();
+    codePromise.then(code => {
+      body.innerHTML = `
+        ${hosted ? `
+        <p class="note-dim" style="margin-top:0">On your <strong>other device</strong>, open this link — it loads everything you have here. Fastest phone ↔ laptop path.</p>
+        <textarea class="notes-ta" id="syncUrlBox" readonly spellcheck="false" style="min-height:70px">${esc(url)}</textarea>
+        <div class="data-actions" style="margin:10px 0 4px">
+          <button class="btn btn-acc" data-act="sync-copy-url">${ic('phone')} Copy sync link</button>
+          <button class="btn" data-act="sync-copy-code">Copy code instead</button>
+        </div>
+        <p class="hint" style="margin:6px 2px 0">Tip: message the link to yourself (WhatsApp/Notes/AirDrop) and tap it on the phone. Nothing is uploaded — the data rides inside the link itself.</p>
+        ` : `
+        <p class="note-dim" style="margin-top:0">This is the offline file, so use the code: copy it, then on your other device open Daily Ops → Settings → <strong>Enter transfer code</strong> → paste.</p>
+        <textarea class="notes-ta eod-ta" id="syncUrlBox" readonly spellcheck="false">${esc(code)}</textarea>
+        <div class="data-actions" style="margin:10px 0 4px">
+          <button class="btn btn-acc" data-act="sync-copy-code">Copy transfer code</button>
+        </div>
+        <p class="hint" style="margin:6px 2px 0">Host the app (GitHub Pages) and this becomes a one-tap link instead.</p>
+        `}
+        <p class="hint" style="margin:10px 2px 0;color:var(--tx3)">Importing on the other device replaces its data — undoable there from the toast. Both devices stay independent afterwards; re-share to level them again.</p>`;
+    });
+  });
+}
+
 /* Command palette targets (from the Ctrl+K box) */
 function runCmd(cmd) {
   const t0 = todayYMD();
@@ -2224,6 +2296,7 @@ function runCmd(cmd) {
     case 'cal': doAct('back-cal', document.body); break;
     case 'stats': go('/stats'); break;
     case 'week': viewWeekStart = null; go('/week'); break;
+    case 'sync': openSync(); break;
     case 'settings': go('/settings'); break;
     case 'help': openHelp(); break;
     case 'export': doAct('export', document.body); break;
@@ -2439,13 +2512,35 @@ function doAct(act, el) {
       break;
     }
     case 'xfer-open': openTransfer(); break;
+    case 'open-sync': openSync(); break;
+    case 'sync-copy-url': {
+      syncURL().then(url => {
+        const ok = () => toast('Sync link copied — open it on your other device');
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(ok, ok);
+        else { const t = $('#syncUrlBox'); if (t) { t.select(); document.execCommand('copy'); } ok(); }
+      });
+      break;
+    }
+    case 'sync-copy-code': {
+      packState().then(code => {
+        const ok = () => toast('Transfer code copied');
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(ok, ok);
+        else ok();
+      });
+      break;
+    }
     case 'xfer-apply': {
       const ta = $('#xferTa'); if (!ta) break;
-      unpackState(ta.value).then(restored => {
-        const undo = snapshotUndo();
-        S = restored; persist(); applyAccent(); closeOverlay(); route();
-        toast('Imported ' + Object.keys(S.days).length + ' day(s) from the code', { undo, ms: 4000 });
-      }).catch(() => toast('That code wasn\u2019t recognised — copy it again in full'));
+      const v = ta.value.trim(); closeOverlay();
+      importFromCode(v, 'paste');
+      break;
+    }
+    case 'sync-confirm': {
+      if (!pendingImport) break;
+      const undo = snapshotUndo();
+      S = pendingImport; pendingImport = null;
+      persist(); applyAccent(); closeOverlay(); go('/'); route();
+      toast('Imported ' + Object.keys(S.days).length + ' day(s)', { undo, ms: 4000 });
       break;
     }
 
@@ -2728,6 +2823,12 @@ function route() {
   closeOverlay();
   editingTaskId = null; carryMoveId = null;
   const h = location.hash.replace(/^#/, '');
+  if (h.startsWith('/sync=')) {                  // arrived via a sync link
+    const code = decodeURIComponent(h.slice(6));
+    try { history.replaceState(null, '', location.pathname); } catch (e) {}  // strip payload, no re-route
+    importFromCode(code, 'link');
+    return;
+  }
   if (h.startsWith('/day/')) {
     const ds = h.slice(5);
     if (/^\d{4}-\d{2}-\d{2}$/.test(ds) && isWeekday(ds)) { renderDay(ds); return; }
@@ -2778,6 +2879,7 @@ window.__ops = {
   get bkHandle() { return bkHandle; }, set bkHandle(v) { bkHandle = v; },
   FS_OK, idb, linkBackup, unlinkBackup, reconnectBackup, writeBackup, maybeRestore,
   persist, normalize, snapshotUndo, packState, unpackState, checkEodNudge, updateNowMarker,
+  syncURL, importFromCode, get pendingImport() { return pendingImport; },
 };
 </script>
 </body>
