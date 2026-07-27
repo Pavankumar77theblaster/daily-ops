@@ -1,0 +1,2616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0e14">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Daily Ops">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap">
+<title>Daily Ops</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='4' y='4' width='16' height='16' rx='4' transform='rotate(45 12 12)' fill='%238b7cff'/%3E%3C/svg%3E">
+<!--
+  ═══════════════════════════════════════════════════════════════════
+  DAILY OPS — single-file daily tracker
+  ═══════════════════════════════════════════════════════════════════
+  Everything lives in this one file. No build step, no dependencies,
+  works offline, data in localStorage (key: dailyops.v1).
+
+  File map:
+    1. CSS        — design tokens first (:root), then components.
+    2. HTML shell — three mount points: #app (views), #overlays, #toasts.
+    3. JS         — sections in order:
+         [utils] [state & storage] [day generation & stats] [markdown]
+         [toasts & undo] [icons] [views: calendar / day / settings]
+         [overlays: search / help] [events] [keyboard] [init]
+
+  Common tweaks:
+    • Default routine / categories / links → seed() in JS (only used on
+      first run; after that, edit everything in Settings inside the app).
+    • Colours → :root tokens below. The accent is set from Settings at
+      runtime via the --accent custom property.
+  ═══════════════════════════════════════════════════════════════════
+-->
+<style>
+/* ── 1. Design tokens ─────────────────────────────────────────── */
+:root{
+  /* surfaces — deep ink-blue, not pure black */
+  --ink:#0b0e14;        /* page background            */
+  --panel:#121620;      /* cards                      */
+  --raised:#1a2030;     /* inputs, hover, chips       */
+  --line:#242b3c;       /* default borders            */
+  --line2:#333c52;      /* stronger borders / tracks  */
+
+  /* text */
+  --tx:#e8ebf4;
+  --tx2:#9aa3b8;
+  --tx3:#657089;
+
+  /* accent — user-swappable at runtime (Settings → Appearance) */
+  --accent:#8b7cff;
+  --accent-soft:color-mix(in oklab, var(--accent) 16%, transparent);
+  --accent-line:color-mix(in oklab, var(--accent) 45%, transparent);
+
+  /* semantic status — fixed on purpose so meaning never shifts */
+  --ok:#3dd68c;         /* done        */
+  --info:#4da3ff;       /* in progress */
+  --warn:#f5a83c;       /* overdue     */
+  --bad:#f4707a;        /* destructive */
+
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,"Helvetica Neue",sans-serif;
+  --mono:ui-monospace,"JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+
+  --r:12px; --r-sm:8px;
+  --sh:0 10px 30px rgba(0,0,0,.35);
+  --fast:140ms cubic-bezier(.2,.7,.3,1);
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{transition:none!important;animation:none!important}
+}
+
+/* ── 2. Base ──────────────────────────────────────────────────── */
+*{box-sizing:border-box;margin:0}
+html{color-scheme:dark}
+body{
+  background:var(--ink) fixed;
+  background-image:radial-gradient(1000px 420px at 50% -180px, var(--accent-soft), transparent 70%);
+  color:var(--tx); font:15px/1.55 var(--sans);
+  -webkit-font-smoothing:antialiased; min-height:100dvh;
+}
+::selection{background:var(--accent-soft)}
+a{color:var(--accent);text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input,select,textarea{
+  font:inherit;color:var(--tx);background:var(--raised);
+  border:1px solid var(--line2);border-radius:var(--r-sm);
+  padding:8px 10px;outline:none;transition:border-color var(--fast);
+}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+input[type=time],input[type=date]{font-family:var(--mono);font-size:13px}
+input[type=color]{padding:2px;width:36px;height:32px;cursor:pointer;background:var(--raised)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.mono{font-family:var(--mono)}
+.app-max{max-width:1060px;margin:0 auto;padding:20px 18px 60px}
+@media(max-width:640px){.app-max{padding:12px 10px 48px}}
+
+/* micro eyebrow labels — part of the instrument-panel voice */
+.eyebrow{
+  font:600 10.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--tx3);
+}
+
+/* ── 3. Buttons & chips ───────────────────────────────────────── */
+.btn{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:8px 14px;border-radius:var(--r-sm);
+  border:1px solid var(--line2);background:var(--raised);
+  font-weight:500;font-size:13.5px;transition:border-color var(--fast),background var(--fast),transform var(--fast);
+  white-space:nowrap;
+}
+.btn:hover{border-color:var(--accent-line)}
+.btn:active{transform:translateY(1px)}
+.btn-acc{background:var(--accent);border-color:var(--accent);color:#0b0e14;font-weight:600}
+.btn-acc:hover{filter:brightness(1.08)}
+.btn-sm{padding:5px 10px;font-size:12.5px}
+.btn-danger:hover{border-color:var(--bad);color:var(--bad)}
+.icon-btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:36px;height:36px;border-radius:var(--r-sm);color:var(--tx2);
+  border:1px solid transparent;transition:color var(--fast),border-color var(--fast),background var(--fast);
+}
+.icon-btn:hover{color:var(--tx);background:var(--raised);border-color:var(--line2)}
+.icon-btn svg{width:17px;height:17px}
+.chip{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:6px 12px;border-radius:999px;font-size:12.5px;font-weight:500;
+  background:var(--raised);border:1px solid var(--line2);color:var(--tx2);
+  transition:border-color var(--fast),color var(--fast);
+}
+.chip:hover{border-color:var(--accent-line);color:var(--tx)}
+.chip svg{width:12px;height:12px;opacity:.7}
+
+/* ── 4. Cards ─────────────────────────────────────────────────── */
+.card{
+  background:var(--panel);border:1px solid var(--line);
+  border-radius:var(--r);padding:18px 20px;
+}
+@media(max-width:640px){.card{padding:14px 14px}}
+.card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.count{font:500 12px var(--mono);color:var(--tx3)}
+
+/* ── 5. Top bar ───────────────────────────────────────────────── */
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:650;font-size:16.5px;letter-spacing:-.01em}
+.brand-gem{width:14px;height:14px;border-radius:4px;background:var(--accent);transform:rotate(45deg);box-shadow:0 0 14px var(--accent-line)}
+.brand small{font:500 11px var(--mono);color:var(--tx3);letter-spacing:.08em;margin-left:2px}
+.tb-actions{display:flex;gap:4px}
+
+/* ── 6. Stats strip ───────────────────────────────────────────── */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 16px;display:flex;flex-direction:column;gap:5px;min-width:0}
+.stat-val{font:600 22px/1.1 var(--mono);letter-spacing:-.02em}
+.stat-val small{font-size:13px;color:var(--tx3);font-weight:500}
+.bar{height:6px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:3px}
+.bar-fill{height:100%;border-radius:99px;background:var(--accent);transition:width .3s ease}
+.cpts-edit{cursor:pointer;border-radius:4px}
+.cpts-edit:hover{color:var(--accent)}
+.cpts-input{width:74px;padding:2px 8px;font:600 18px var(--mono)}
+@media(max-width:640px){
+  .stats{gap:7px}
+  .stat{padding:10px 11px}
+  .stat-val{font-size:17px}
+  .eyebrow{font-size:9.5px}
+}
+
+/* ── 7. Calendar ──────────────────────────────────────────────── */
+.cal-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.cal-title{font:600 19px/1 var(--sans);letter-spacing:-.01em}
+.cal-title .mono{color:var(--tx3);font-size:15px;font-weight:500}
+.cal-nav{display:flex;gap:4px;align-items:center}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:7px}
+.dow{text-align:center;padding:2px 0 8px}
+.dow.wkend{opacity:.45}
+.cell{
+  position:relative;aspect-ratio:.95;border-radius:10px;
+  background:var(--raised);border:1px solid var(--line);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  padding:6px 2px;cursor:pointer;
+  transition:border-color var(--fast),background var(--fast),transform var(--fast);
+}
+.cell:hover{border-color:var(--line2);transform:translateY(-1px)}
+.cell-blank{background:transparent;border-color:transparent;cursor:default;pointer-events:none}
+.cell-off{background:transparent;border-style:dashed;border-color:var(--line);cursor:default;pointer-events:none}
+.cell-off .cell-date{color:var(--tx3);opacity:.55}
+.cell-today{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 0 18px -4px var(--accent-line)}
+.cell-date{font:500 12.5px var(--mono);color:var(--tx2);line-height:1}
+.cell-today .cell-date{color:var(--accent);font-weight:700}
+.cell-frac{font:500 10px var(--mono);color:var(--tx3);line-height:1}
+.ring{display:block}
+.ring-track{stroke:var(--line2);fill:none}
+.ring-val{fill:none;stroke:currentColor;stroke-linecap:round;transition:stroke-dashoffset .3s ease}
+.st-done{color:var(--ok)} .st-part{color:var(--info)}
+.st-todo{color:var(--tx3)} .st-over{color:var(--warn)}
+.planned-dot{
+  position:absolute;bottom:5px;display:flex;align-items:center;gap:3px;
+  font:600 9px var(--mono);color:var(--accent);
+}
+.planned-dot::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.hint{margin-top:16px;text-align:center;font-size:12.5px;color:var(--tx3)}
+.hint .kbd{margin:0 2px}
+@media(max-width:640px){
+  .cal-grid{gap:4px}
+  .cell{border-radius:8px;gap:3px;aspect-ratio:.82}
+  .cell-frac{display:none}
+  .planned-dot{bottom:3px}
+  .planned-dot span{display:none}
+}
+
+/* ── 8. Day page ──────────────────────────────────────────────── */
+.day-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.day-title{font:650 21px/1.2 var(--sans);letter-spacing:-.015em}
+.day-title .mono{color:var(--tx3);font-weight:500;font-size:16px}
+.pill{
+  display:inline-flex;align-items:center;gap:6px;
+  font:600 11px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;
+  padding:5px 10px;border-radius:999px;border:1px solid;
+}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill-done{color:var(--ok);border-color:color-mix(in oklab,var(--ok) 40%,transparent);background:color-mix(in oklab,var(--ok) 10%,transparent)}
+.pill-part{color:var(--info);border-color:color-mix(in oklab,var(--info) 40%,transparent);background:color-mix(in oklab,var(--info) 10%,transparent)}
+.pill-todo{color:var(--tx3);border-color:var(--line2);background:var(--raised)}
+.pill-over{color:var(--warn);border-color:color-mix(in oklab,var(--warn) 40%,transparent);background:color-mix(in oklab,var(--warn) 10%,transparent)}
+.day-sub{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+.spacer{flex:1}
+.day-grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:14px;align-items:start}
+.day-main{display:flex;flex-direction:column;gap:14px;min-width:0}
+.day-side{display:flex;flex-direction:column;gap:14px}
+@media(max-width:860px){.day-grid{grid-template-columns:1fr}.day-side{order:2}}
+
+/* progress bar inside routine card */
+.routine-progress{display:flex;align-items:center;gap:10px;margin-top:14px}
+.routine-progress .bar{flex:1;margin:0}
+
+/* ── 9. Task rows ─────────────────────────────────────────────── */
+.task-list{display:flex;flex-direction:column}
+.task{
+  display:flex;align-items:center;gap:11px;
+  min-height:46px;padding:7px 6px;border-radius:var(--r-sm);
+  border-bottom:1px solid var(--line);
+  transition:background var(--fast),opacity var(--fast);
+}
+.task:last-child{border-bottom:0}
+.task:hover{background:var(--raised)}
+.task.dragging{opacity:.45;background:var(--raised);border-radius:var(--r-sm)}
+.grip{
+  color:var(--tx3);cursor:grab;touch-action:none;padding:6px 2px;
+  opacity:0;transition:opacity var(--fast);display:flex;flex:none;
+}
+.grip svg{width:13px;height:13px}
+.task:hover .grip,.task:focus-within .grip{opacity:.8}
+@media(pointer:coarse){.grip{opacity:.5}}
+.cb{
+  flex:none;width:21px;height:21px;border-radius:7px;
+  border:1.5px solid var(--line2);background:transparent;
+  display:flex;align-items:center;justify-content:center;
+  transition:background var(--fast),border-color var(--fast);
+}
+.cb svg{width:12px;height:12px;stroke:#0b0e14;stroke-width:3;opacity:0;transition:opacity var(--fast)}
+.task.done .cb{background:var(--ok);border-color:var(--ok)}
+.task.done .cb svg{opacity:1}
+.t-time{flex:none;font:500 12.5px var(--mono);color:var(--tx3);min-width:44px}
+.t-title{flex:1;min-width:0;font-size:14.5px;overflow-wrap:anywhere;transition:color var(--fast)}
+.task.done .t-title{color:var(--tx3);text-decoration:line-through;text-decoration-color:var(--line2);text-decoration-thickness:1px}
+.t-cat{flex:none;width:8px;height:8px;border-radius:50%}
+.t-actions{display:flex;flex:none;opacity:0;transition:opacity var(--fast)}
+.task:hover .t-actions,.task:focus-within .t-actions{opacity:1}
+@media(pointer:coarse){.t-actions{opacity:.7}}
+.t-actions .icon-btn{width:30px;height:30px}
+.t-actions .icon-btn svg{width:14px;height:14px}
+
+/* inline task editor */
+.task-edit{
+  display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+  padding:10px 8px;border-radius:var(--r-sm);
+  background:var(--raised);border:1px solid var(--accent-line);margin:4px 0;
+}
+.task-edit input[type=text]{flex:1;min-width:150px}
+.task-edit select{max-width:140px}
+
+/* add rows */
+.add-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;align-items:center}
+.add-row input[type=text]{flex:1;min-width:150px}
+.empty{padding:14px 4px;color:var(--tx3);font-size:13.5px}
+
+/* planned (extra) tasks look intentionally different: accent spine, no border rows */
+.extra-card{border-left:3px solid var(--accent)}
+.extra-card .task{border-bottom-color:transparent}
+.extra-card .task + .task{border-top:1px dashed var(--line)}
+
+/* ── 10. Notes ────────────────────────────────────────────────── */
+.notes-tabs{display:flex;gap:2px;background:var(--raised);border:1px solid var(--line2);border-radius:var(--r-sm);padding:2px}
+.tab{padding:4px 12px;border-radius:6px;font-size:12.5px;font-weight:500;color:var(--tx2)}
+.tab-on{background:var(--panel);color:var(--tx);box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.md-toolbar{display:flex;gap:2px;margin-bottom:8px}
+.md-toolbar .icon-btn{width:30px;height:30px;font:600 12.5px var(--mono)}
+.notes-ta{
+  width:100%;min-height:190px;resize:none;overflow:hidden;
+  font:13.5px/1.65 var(--mono);padding:12px;
+  background:var(--ink);border-color:var(--line);
+}
+.saved-flag{font:500 11px var(--mono);color:var(--ok);opacity:0;transition:opacity .4s}
+.saved-flag.show{opacity:1}
+.md-view{font-size:14px;line-height:1.65;padding:4px 2px;min-height:100px}
+.md-view .md-p{margin:0 0 10px}
+.md-view .md-h4,.md-view .md-h5,.md-view .md-h6{margin:14px 0 6px;letter-spacing:-.01em}
+.md-view .md-ul,.md-view .md-ol{margin:0 0 10px;padding-left:22px}
+.md-view li{margin:3px 0}
+.md-view .md-code{font:12.5px var(--mono);background:var(--raised);border:1px solid var(--line2);border-radius:5px;padding:1.5px 6px}
+.md-view .md-pre{background:var(--ink);border:1px solid var(--line2);border-radius:var(--r-sm);padding:12px 14px;overflow-x:auto;margin:0 0 12px}
+.md-view .md-pre code{font:12.5px/1.6 var(--mono)}
+.md-empty{color:var(--tx3)}
+
+/* ── 11. Carry forward ────────────────────────────────────────── */
+.carry-item{display:flex;align-items:flex-start;gap:9px;padding:9px 2px;border-bottom:1px solid var(--line)}
+.carry-item:last-child{border-bottom:0}
+.carry-text{flex:1;font-size:13.5px;overflow-wrap:anywhere;padding-top:3px}
+.carry-move-row{display:flex;gap:6px;margin:6px 0 8px;align-items:center;flex-wrap:wrap}
+
+/* ── 12. Settings ─────────────────────────────────────────────── */
+.set-grid{display:flex;flex-direction:column;gap:14px;max-width:760px}
+.swatches{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.swatch{width:34px;height:34px;border-radius:10px;border:2px solid transparent;transition:transform var(--fast),border-color var(--fast)}
+.swatch:hover{transform:scale(1.1)}
+.swatch-on{border-color:var(--tx);box-shadow:0 0 0 2px var(--ink),0 0 0 4px var(--tx)}
+.tpl-row,.cat-row,.link-row{
+  display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+  padding:10px 6px;border-bottom:1px solid var(--line);
+}
+.tpl-row:last-of-type,.cat-row:last-of-type,.link-row:last-of-type{border-bottom:0}
+.tpl-row input[type=text]{flex:1;min-width:140px}
+.link-row input[type=text]{min-width:110px}
+.link-row input[type=url]{flex:1;min-width:170px}
+.cat-row input[type=text]{flex:1;min-width:120px}
+.daychips{display:flex;gap:3px}
+.dchip{
+  width:28px;height:28px;border-radius:7px;font:600 11px var(--mono);
+  border:1px solid var(--line2);color:var(--tx3);
+  display:flex;align-items:center;justify-content:center;
+  transition:background var(--fast),color var(--fast),border-color var(--fast);
+}
+.dchip-on{background:var(--accent);border-color:var(--accent);color:#0b0e14}
+.note-dim{font-size:12.5px;color:var(--tx3);margin-top:10px;line-height:1.5}
+.data-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+/* ── 13. Overlays (search / help) ─────────────────────────────── */
+.ov{
+  position:fixed;inset:0;z-index:50;
+  background:rgba(6,8,12,.66);backdrop-filter:blur(3px);
+  display:flex;align-items:flex-start;justify-content:center;
+  padding:9vh 14px 20px;animation:fade .12s ease;
+}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.ov-panel{
+  width:100%;max-width:600px;background:var(--panel);
+  border:1px solid var(--line2);border-radius:14px;box-shadow:var(--sh);
+  overflow:hidden;animation:pop .14s cubic-bezier(.2,.7,.3,1);
+}
+@keyframes pop{from{transform:translateY(8px) scale(.985);opacity:0}to{transform:none;opacity:1}}
+.search-input{width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;padding:16px 18px;font-size:15px}
+.s-res{max-height:56vh;overflow-y:auto;padding:6px}
+.s-item{display:block;width:100%;text-align:left;padding:10px 12px;border-radius:var(--r-sm);transition:background var(--fast)}
+.s-item:hover,.s-item-on{background:var(--raised)}
+.s-top{display:flex;gap:8px;align-items:center;margin-bottom:3px}
+.s-date{font:600 12px var(--mono);color:var(--accent)}
+.s-where{font:500 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--tx3)}
+.s-snip{font-size:13px;color:var(--tx2);overflow-wrap:anywhere}
+.s-snip mark{background:var(--accent-soft);color:var(--tx);border-radius:3px;padding:0 2px}
+.s-none{padding:20px;text-align:center;color:var(--tx3);font-size:13.5px}
+.help-body{padding:18px 20px 22px}
+.help-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 26px;margin-top:12px}
+@media(max-width:560px){.help-grid{grid-template-columns:1fr}}
+.help-row{display:flex;justify-content:space-between;gap:14px;font-size:13px;color:var(--tx2);padding:4px 0}
+.kbd{
+  font:600 11px var(--mono);color:var(--tx);
+  background:var(--raised);border:1px solid var(--line2);border-bottom-width:2px;
+  border-radius:5px;padding:2px 7px;white-space:nowrap;
+}
+
+/* ── 14. Toasts ───────────────────────────────────────────────── */
+#toasts{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:60;display:flex;flex-direction:column;gap:8px;align-items:center;width:max-content;max-width:92vw}
+.toast{
+  display:flex;align-items:center;gap:12px;
+  background:var(--raised);border:1px solid var(--line2);border-radius:10px;
+  padding:10px 16px;font-size:13.5px;box-shadow:var(--sh);
+  animation:pop .15s cubic-bezier(.2,.7,.3,1);max-width:92vw;
+}
+.toast-undo{color:var(--accent);font-weight:600;flex:none}
+.toast-undo:hover{text-decoration:underline}
+
+/* ── 14b. v2 — today strip, stats page, EOD, pull-in ──────────── */
+.today-strip{
+  display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+  padding:12px 16px;margin:0 0 18px;cursor:pointer;box-shadow:var(--sh);
+  font-family:var(--sans);transition:border-color .12s ease,transform .12s ease;
+}
+.today-strip:hover{border-color:var(--line2);transform:translateY(-1px)}
+.ts-label{flex:none}
+.ts-frac{color:var(--tx2);font-size:12.5px}
+.ts-main{flex:1;min-width:0;font-size:14px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ts-done .ts-main{color:var(--ok)}
+.ts-go{color:var(--tx3);display:flex}
+.ts-go svg{width:16px;height:16px}
+
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.heat{display:flex;gap:4px;overflow-x:auto;padding:6px 2px 10px}
+.heat-col{display:flex;flex-direction:column;gap:4px}
+.heat-labels{margin-right:4px}
+.heat-lab{height:15px;display:flex;align-items:center;font-size:9px}
+.heat-cell{width:15px;height:15px;border-radius:4px;border:1px solid var(--line);background:var(--raised);padding:0;cursor:pointer;flex:none;transition:transform .1s ease}
+.heat-cell:hover{transform:scale(1.3);border-color:var(--line2)}
+.heat-cell:disabled{opacity:.22;cursor:default;transform:none}
+.hc-done{background:var(--ok);border-color:var(--ok)}
+.hc-part{background:color-mix(in oklab,var(--info) 55%,var(--raised));border-color:transparent}
+.hc-over{background:color-mix(in oklab,var(--warn) 45%,var(--raised));border-color:transparent}
+.hc-today{outline:2px solid var(--accent);outline-offset:1px}
+.heat-legend{display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:11.5px;color:var(--tx3);padding:2px}
+.heat-key{width:11px;height:11px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:-1px}
+
+.catbar{display:flex;align-items:center;gap:10px;padding:7px 0}
+.cb-dot{width:9px;height:9px;border-radius:50%;flex:none}
+.cb-lab{width:150px;flex:none;font-size:13px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cb-track{flex:1;height:7px;border-radius:99px;background:var(--raised);overflow:hidden}
+.cb-fill{display:block;height:100%;border-radius:99px}
+.cb-n{color:var(--tx3);font-size:12px;width:30px;text-align:right;flex:none}
+
+.eod-panel{padding:16px}
+.eod-ta{width:100%;margin-top:10px}
+.pull-banner{
+  display:flex;align-items:center;gap:9px;width:100%;text-align:left;cursor:pointer;
+  background:color-mix(in oklab,var(--warn) 9%,transparent);
+  border:1px dashed color-mix(in oklab,var(--warn) 45%,transparent);
+  color:var(--warn);border-radius:var(--r-sm);padding:9px 12px;
+  font-size:13px;font-family:var(--sans);margin-bottom:12px;
+}
+.pull-banner:hover{background:color-mix(in oklab,var(--warn) 15%,transparent)}
+.pull-banner svg{width:15px;height:15px;flex:none}
+.icon-btn.on{color:var(--accent);background:var(--accent-soft)}
+.tb-gear{position:relative}
+.dot-warn{position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 2px var(--panel)}
+.s-cmd .s-where{color:var(--accent)}
+@keyframes glowPulse{0%{box-shadow:0 0 0 0 color-mix(in oklab,var(--ok) 55%,transparent)}100%{box-shadow:0 0 0 14px transparent}}
+.pill-pulse{animation:glowPulse .9s ease-out 2}
+
+/* automatic backup file */
+.bk-box{border:1px solid var(--line);border-radius:var(--r-sm);padding:12px 14px;margin-top:12px;background:var(--ink)}
+.bk-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.bk-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--tx3)}
+.bk-dot.on{background:var(--ok);box-shadow:0 0 0 3px color-mix(in oklab,var(--ok) 22%,transparent)}
+.bk-dot.warn{background:var(--warn);box-shadow:0 0 0 3px color-mix(in oklab,var(--warn) 22%,transparent)}
+.bk-name{font-size:13px;color:var(--tx);flex:1;min-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bk-name .mono{color:var(--tx2)}
+.reconnect{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:left;cursor:pointer;
+  background:color-mix(in oklab,var(--info) 10%,transparent);
+  border:1px solid color-mix(in oklab,var(--info) 45%,transparent);
+  color:var(--info);border-radius:var(--r-sm);padding:10px 14px;
+  font-size:13px;font-family:var(--sans);margin-bottom:14px;
+}
+.reconnect:hover{background:color-mix(in oklab,var(--info) 16%,transparent)}
+.reconnect svg{width:16px;height:16px;flex:none}
+.reconnect .spacer{flex:1}
+@media (max-width:720px){ .tiles{grid-template-columns:repeat(2,1fr)} .cb-lab{width:96px} }
+
+/* ── 14c. v3 — design refresh ─────────────────────────────────── */
+:root{ --display:'Space Grotesk',var(--sans); }
+body{background:
+  radial-gradient(1100px 560px at 10% -8%, color-mix(in oklab, var(--accent) 8%, transparent), transparent 62%),
+  radial-gradient(900px 480px at 102% -2%, rgba(77,163,255,.055), transparent 58%),
+  var(--ink);}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.05;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");}
+.app-max{position:relative;z-index:1}
+.brand,.cal-title,.day-title,.stat-val{font-family:var(--display);letter-spacing:-.01em}
+.card{background:linear-gradient(180deg, color-mix(in oklab, #fff 2.5%, var(--panel)), var(--panel));
+  border-color:color-mix(in oklab, #fff 5%, var(--line));}
+.ring circle{stroke-linecap:round}
+.cell-today{box-shadow:0 0 0 1px var(--accent-line), 0 10px 26px -14px color-mix(in oklab, var(--accent) 55%, transparent)}
+.btn-acc{background-image:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,0))}
+::selection{background:color-mix(in oklab, var(--accent) 32%, transparent)}
+*{scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
+*::-webkit-scrollbar{width:9px;height:9px}
+*::-webkit-scrollbar-thumb{background:var(--line2);border-radius:99px;border:2px solid var(--ink)}
+*::-webkit-scrollbar-track{background:transparent}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* now marker — the task the clock says you should be on */
+.task.t-now{border-color:var(--accent-line);background:color-mix(in oklab, var(--accent) 7%, transparent)}
+.task.t-now::after{content:'now';font-family:var(--mono);font-size:10px;letter-spacing:.08em;
+  color:var(--accent);border:1px solid var(--accent-line);border-radius:99px;padding:2px 7px;margin-left:8px;flex:none}
+
+/* day off */
+.cell-dayoff .ring{opacity:.25}
+.cell-dayoff{background:repeating-linear-gradient(-45deg, transparent 0 7px, color-mix(in oklab, var(--tx3) 9%, transparent) 7px 8px)}
+.off-tag{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;color:var(--tx3);
+  border:1px solid var(--line2);border-radius:99px;padding:1px 6px;text-transform:uppercase}
+.hc-offday{background:repeating-linear-gradient(-45deg, var(--raised) 0 4px, var(--panel) 4px 6px);border-color:var(--line)}
+.off-card{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:22px}
+.off-card h2{font-family:var(--display);font-size:19px;margin:0;color:var(--tx)}
+.pill-off{color:var(--tx3);border-color:var(--line2);background:transparent}
+
+/* eod nudge bar (amber cousin of .reconnect) */
+.nudgebar{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  background:color-mix(in oklab, var(--warn) 10%, transparent);
+  border:1px solid color-mix(in oklab, var(--warn) 45%, transparent);
+  color:var(--warn);border-radius:var(--r-sm);padding:10px 14px;
+  font-size:13px;font-family:var(--sans);margin-bottom:14px;
+}
+.nudgebar .spacer{flex:1}
+.nudgebar .btn{flex:none}
+
+/* week view */
+.week-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.week-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;align-items:start}
+.wk-col{background:linear-gradient(180deg, color-mix(in oklab, #fff 2.5%, var(--panel)), var(--panel));
+  border:1px solid color-mix(in oklab, #fff 5%, var(--line));border-radius:var(--r);padding:12px;min-width:0}
+.wk-col.wk-today{border-color:var(--accent-line);box-shadow:0 10px 26px -16px color-mix(in oklab, var(--accent) 45%, transparent)}
+.wk-col.wk-off{opacity:.6}
+.wk-day{display:flex;align-items:center;gap:8px;width:100%;text-align:left;cursor:pointer;background:none;border:none;
+  padding:2px 2px 10px;color:var(--tx)}
+.wk-day:hover .wk-num{color:var(--accent)}
+.wk-name{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--tx3)}
+.wk-num{font-family:var(--display);font-size:19px;font-weight:600;line-height:1}
+.wk-count{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--tx3)}
+.wk-task{display:flex;align-items:center;gap:8px;width:100%;text-align:left;cursor:pointer;background:none;
+  border:none;border-radius:7px;padding:6px 6px;color:var(--tx2);font-size:12.5px;line-height:1.35}
+.wk-task:hover{background:var(--raised)}
+.wk-task .wk-tick{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--line2);flex:none;
+  display:flex;align-items:center;justify-content:center;color:transparent}
+.wk-task .wk-tick svg{width:9px;height:9px}
+.wk-task.done{color:var(--tx3);text-decoration:line-through}
+.wk-task.done .wk-tick{background:var(--ok);border-color:var(--ok);color:#08110c}
+.wk-task.wk-extra .wk-tick{border-radius:4px}
+.wk-sep{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--accent);
+  margin:8px 2px 3px;opacity:.85}
+.wk-ghost{font-size:12px;color:var(--tx3);padding:4px 2px}
+.wk-more{font-size:11.5px;color:var(--tx3);padding:4px 6px}
+.wk-notes{margin-top:8px;font-size:11px;color:var(--tx3);display:flex;align-items:center;gap:5px}
+.wk-notes svg{width:11px;height:11px}
+@media (max-width:900px){.week-grid{grid-template-columns:repeat(5,minmax(150px,1fr));overflow-x:auto;padding-bottom:6px}}
+
+/* bottom tab bar — phones only */
+.tabbar{display:none}
+@media (max-width:720px){
+  .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:40;display:flex;justify-content:space-around;
+    padding:6px max(8px, env(safe-area-inset-left)) calc(6px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-right));
+    background:color-mix(in oklab, var(--ink) 82%, transparent);
+    -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+    border-top:1px solid var(--line);}
+  .tab-i{display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;cursor:pointer;
+    color:var(--tx3);font-family:var(--sans);font-size:10px;letter-spacing:.02em;padding:4px 10px;border-radius:10px}
+  .tab-i svg{width:19px;height:19px}
+  body[data-view=cal]   .tab-i[data-view=cal],
+  body[data-view=week]  .tab-i[data-view=week],
+  body[data-view=day]   .tab-i[data-view=day],
+  body[data-view=stats] .tab-i[data-view=stats],
+  body[data-view=set]   .tab-i[data-view=set]{color:var(--accent)}
+  body{padding-bottom:calc(66px + env(safe-area-inset-bottom))}
+}
+
+/* ── 15. Misc ─────────────────────────────────────────────────── */
+.banner{
+  background:color-mix(in oklab,var(--warn) 12%,transparent);
+  border:1px solid color-mix(in oklab,var(--warn) 40%,transparent);
+  color:var(--warn);border-radius:var(--r-sm);
+  padding:10px 14px;font-size:13px;margin-bottom:14px;display:none;
+}
+.banner.show{display:block}
+.fade-in{animation:fade .16s ease}
+</style>
+</head>
+<body>
+<div class="app-max">
+  <div id="banner" class="banner">⚠ Storage is unavailable in this preview, so changes won't persist. Download the file and open it in your own browser (or host it) for real use.</div>
+  <main id="app" aria-live="polite"></main>
+  <nav class="tabbar" id="tabbar" aria-label="Primary"></nav>
+</div>
+<div id="overlays"></div>
+<div id="toasts"></div>
+<input type="file" id="fileImport" accept="application/json,.json" hidden>
+<noscript><p style="padding:40px;text-align:center">Daily Ops needs JavaScript to run.</p></noscript>
+<script>
+'use strict';
+/* Appended below: utils → state → day logic → views → events → init */
+
+/* ════════════════════════════════════════════════════════════════
+   UTILS
+   ════════════════════════════════════════════════════════════════ */
+const $  = (s, el=document) => el.querySelector(s);
+const $$ = (s, el=document) => [...el.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => (
+  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID()
+  : 'id-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 9));
+const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
+const debounce = (fn, ms) => { let t; const d = (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; d.now = (...a) => { clearTimeout(t); fn(...a); }; return d; };
+
+/* Dates. Everything keyed by local 'YYYY-MM-DD'. Noon avoids DST edges. */
+const pad2 = n => String(n).padStart(2, '0');
+const ymd = d => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+const fromYMD = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d, 12); };
+const todayYMD = () => ymd(new Date());
+const dowMon1 = s => { const d = fromYMD(s).getDay(); return d === 0 ? 7 : d; };  // Mon=1 … Sun=7
+const isWeekday = s => dowMon1(s) <= 5;
+const addDays = (s, n) => { const d = fromYMD(s); d.setDate(d.getDate() + n); return ymd(d); };
+const prevWeekday = s => { let d = addDays(s, -1); while (!isWeekday(d)) d = addDays(d, -1); return d; };
+const nextWeekday = s => { let d = addDays(s, 1); while (!isWeekday(d)) d = addDays(d, 1); return d; };
+const fmtLong = s => fromYMD(s).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+const fmtShort = s => fromYMD(s).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' });
+const fmtStamp = iso => { try { return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return '—'; } };
+const monthLabel = (y, m) => new Date(y, m, 1).toLocaleDateString('en-GB', { month: 'long' }) + ' <span class="mono">' + y + '</span>';
+const DAY_LETTERS = ['', 'M', 'T', 'W', 'T', 'F'];
+const DAY_NAMES = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+/* ════════════════════════════════════════════════════════════════
+   STATE & STORAGE  —  localStorage key 'dailyops.v1'
+   ════════════════════════════════════════════════════════════════ */
+const DB_KEY = 'dailyops.v1';
+let storageOK = true;
+/* Claude artifact storage (async key-value) — present only inside claude.ai
+   artifacts, where localStorage is blocked. When it exists we mirror state
+   there so the artifact version persists too. Null everywhere else. */
+const AS = (typeof window.storage === 'object' && window.storage && typeof window.storage.get === 'function')
+  ? window.storage : null;
+
+/* First-run defaults. After first launch these live in localStorage and
+   are edited from Settings — this function is never consulted again. */
+function seed() {
+  const cats = [
+    { id: uid(), label: 'Ops',   color: '#38bdf8' },
+    { id: uid(), label: 'CPTS',  color: '#a78bfa' },
+    { id: uid(), label: 'Admin', color: '#8a93a8' },
+  ];
+  const [OPS, CPTS, ADMIN] = cats.map(c => c.id);
+  const ALL = [1, 2, 3, 4, 5];
+  let o = 0;
+  const t = (time, title, days, cat) => ({ id: uid(), time, title, days, cat, order: o++ });
+  return {
+    version: 2,
+    settings: {
+      accent: '#8b7cff',
+      cptsDone: 45, cptsTotal: 495,  // HTB CPTS sections done / total
+      hideDone: false,               // hide ticked tasks on day pages
+      lastExport: null,              // when the last manual backup was downloaded
+      autoBackup: false,             // mirror every change to a linked file
+      lastAuto: null,                // when the linked file was last written
+      eodAt: '18:25',                // in-app nudge time for the EOD log
+      links: [
+        { id: uid(), label: 'Keka',     url: 'https://app.keka.com' },
+        { id: uid(), label: 'Gmail',    url: 'https://mail.google.com' },
+        { id: uid(), label: 'HTB CPTS', url: 'https://enterprise.hackthebox.com/academy-lab/30000/2125/paths/16' },
+      ],
+    },
+    categories: cats,
+    templates: [
+      t('09:30', 'Clock in — Keka',                              ALL, ADMIN),
+      t('09:45', 'Email triage & replies',                       ALL, ADMIN),
+      t('10:00', 'Weekly planning — set HTB target',             [1], CPTS),
+      t('10:30', 'Core pentest / VAP work',                      ALL, OPS),
+      t('11:30', 'Deep execution + evidence capture',            [2], OPS),
+      t('11:30', 'Report QA · TORT/DAST-S · Confluence',         [4], OPS),
+      t('15:00', 'Network + Active Directory focus',             [3], CPTS),
+      t('16:00', 'HTB CPTS lab push',                            ALL, CPTS),
+      t('17:00', 'Weekly retro + plan next week',                [5], OPS),
+      t('18:00', 'PeerBuddy progress update',                    ALL, OPS),
+      t('18:30', 'EOD log + Clock out — Keka',                   ALL, ADMIN),
+    ],
+    days: {},   // 'YYYY-MM-DD' → { routine:[task], extra:[task], notes:'' }
+    carry: [],  // [{ id, text }]
+  };
+}
+
+/* Coerce any loaded/imported object into a valid state (fills gaps,
+   never throws). This is what keeps old backups working after updates. */
+function normalize(raw) {
+  const base = seed();
+  if (!raw || typeof raw !== 'object') return base;
+  const s = { ...base, ...raw };
+  s.version = 2;
+  s.settings = { ...base.settings, ...(raw.settings || {}) };
+  /* v1 → v2 migration: the old single CPTS percent becomes done/total */
+  if (raw.settings && raw.settings.cptsDone == null && raw.settings.cpts != null) {
+    s.settings.cptsDone = clamp(Number(raw.settings.cpts) || 0, 0, 100);
+    s.settings.cptsTotal = 100;
+  }
+  s.settings.cptsTotal = Math.max(1, Math.round(Number(s.settings.cptsTotal) || 1));
+  s.settings.cptsDone = clamp(Math.round(Number(s.settings.cptsDone) || 0), 0, s.settings.cptsTotal);
+  delete s.settings.cpts;
+  s.settings.hideDone = !!s.settings.hideDone;
+  if (typeof s.settings.lastExport !== 'string') s.settings.lastExport = null;
+  s.settings.autoBackup = !!s.settings.autoBackup;
+  if (typeof s.settings.lastAuto !== 'string') s.settings.lastAuto = null;
+  if (!/^\d{2}:\d{2}$/.test(s.settings.eodAt || '')) s.settings.eodAt = base.settings.eodAt;
+  if (!Array.isArray(s.settings.links)) s.settings.links = base.settings.links;
+  if (!Array.isArray(s.categories)) s.categories = base.categories;
+  if (!Array.isArray(s.templates)) s.templates = base.templates;
+  s.templates.forEach((t, i) => { if (!Array.isArray(t.days)) t.days = [1,2,3,4,5]; if (t.order == null) t.order = i; });
+  if (!s.days || typeof s.days !== 'object') s.days = {};
+  for (const k of Object.keys(s.days)) {
+    const d = s.days[k];
+    if (!Array.isArray(d.routine)) d.routine = [];
+    if (!Array.isArray(d.extra)) d.extra = [];
+    if (typeof d.notes !== 'string') d.notes = '';
+    d.off = !!d.off;
+  }
+  if (!Array.isArray(s.carry)) s.carry = [];
+  return s;
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(DB_KEY);
+    if (raw) return normalize(JSON.parse(raw));
+  } catch (e) { storageOK = false; }
+  return seed();
+}
+
+let S = load();
+
+function persist() {
+  try { localStorage.setItem(DB_KEY, JSON.stringify(S)); }
+  catch (e) { storageOK = false; $('#banner').classList.add('show'); }
+  if (typeof backupSoon === 'function' && bkState === 'linked') backupSoon();
+  if (AS && typeof artifactSoon === 'function') artifactSoon();
+}
+const saveSoon = debounce(persist, 350);
+function persistArtifact() {
+  if (!AS) return;
+  try { AS.set(DB_KEY, JSON.stringify(S)).catch(() => {}); } catch (e) {}
+}
+const artifactSoon = debounce(persistArtifact, 900);
+
+/* ════════════════════════════════════════════════════════════════
+   AUTOMATIC BACKUP FILE  (File System Access API + IndexedDB)
+   ────────────────────────────────────────────────────────────────
+   Link a JSON file once; every change is mirrored to it silently, so a
+   cleared cache or a fresh browser can't wipe your history. The file
+   handle is kept in IndexedDB so the link survives restarts (the
+   browser may ask you to re-grant write access once per session).
+   Chromium-only API — everywhere else this stays dormant and manual
+   Export / Import remain the path. Nothing here ever leaves the machine.
+   ════════════════════════════════════════════════════════════════ */
+const FS_OK = typeof window.showSaveFilePicker === 'function';
+let bkHandle = null;        // FileSystemFileHandle for the linked file
+let bkState = 'off';        // 'off' | 'linked' | 'need-permission'
+
+/* tiny promisified IndexedDB, one store, one row — just holds the handle */
+const idb = (() => {
+  const open = () => new Promise((res, rej) => {
+    const r = indexedDB.open('dailyops-backup', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+  const tx = async (mode, fn) => {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const t = db.transaction('kv', mode);
+      const os = t.objectStore('kv');
+      const req = fn(os);
+      t.oncomplete = () => res(req && req.result);
+      t.onerror = () => rej(t.error);
+    });
+  };
+  return {
+    get: k => tx('readonly', os => os.get(k)).catch(() => null),
+    set: (k, v) => tx('readwrite', os => os.put(v, k)).catch(() => {}),
+    del: k => tx('readwrite', os => os.delete(k)).catch(() => {}),
+  };
+})();
+
+const perm = async (h, mode = 'readwrite') => {
+  if (!h.queryPermission) return 'granted';
+  try { return await h.queryPermission({ mode }); } catch { return 'denied'; }
+};
+const askPerm = async (h, mode = 'readwrite') => {
+  if (!h.requestPermission) return 'granted';
+  try { return await h.requestPermission({ mode }); } catch { return 'denied'; }
+};
+
+/* Write the whole state to the linked file (best effort, never throws). */
+async function writeBackup() {
+  if (!bkHandle || bkState !== 'linked') return;
+  try {
+    const w = await bkHandle.createWritable();
+    await w.write(JSON.stringify(S, null, 2));
+    await w.close();
+    S.settings.lastAuto = new Date().toISOString();
+    try { localStorage.setItem(DB_KEY, JSON.stringify(S)); } catch (e) {}
+    if (cur.view === 'set') { const el = $('#bkStamp'); if (el) el.textContent = fmtStamp(S.settings.lastAuto); }
+  } catch (e) {
+    bkState = 'need-permission';           // handle went stale or access revoked
+    if (cur.view === 'set') renderSettings();
+  }
+}
+const backupSoon = debounce(() => { writeBackup(); }, 1200);
+
+/* Let the user pick / create the backup file (needs a click). */
+async function linkBackup() {
+  if (!FS_OK) return;
+  try {
+    bkHandle = await window.showSaveFilePicker({
+      suggestedName: 'daily-ops-backup.json',
+      types: [{ description: 'JSON backup', accept: { 'application/json': ['.json'] } }],
+    });
+  } catch (e) { return; }                  // user cancelled the picker
+  await idb.set('file', bkHandle);
+  bkState = 'linked';
+  S.settings.autoBackup = true;
+  persist();
+  await writeBackup();
+  toast('Backup linked — changes now mirror to that file');
+  if (cur.view === 'set') renderSettings();
+}
+
+function unlinkBackup() {
+  bkHandle = null; bkState = 'off';
+  S.settings.autoBackup = false;
+  idb.del('file'); persist();
+  toast('Auto-backup off — your data stays in this browser');
+  if (cur.view === 'set') renderSettings();
+}
+
+/* Re-grant write access after a restart, then flush current state. */
+async function reconnectBackup() {
+  if (!bkHandle) return;
+  const p = await askPerm(bkHandle);
+  if (p === 'granted') {
+    bkState = 'linked';
+    S.settings.autoBackup = true; persist();
+    await maybeRestore();                  // if this browser is empty, pull the file back in
+    await writeBackup();
+    toast('Backup reconnected');
+  } else {
+    toast('Permission denied — auto-backup stays paused');
+  }
+  if (cur.view === 'set') renderSettings();
+}
+
+/* On launch: if this browser has no data yet but the linked file does,
+   offer to restore from it — this is what makes a fresh browser recover. */
+let restorePrompted = false;
+async function maybeRestore() {
+  if (restorePrompted || !bkHandle || bkState !== 'linked') return;
+  const fresh = !localStorage.getItem(DB_KEY) && Object.keys(S.days).length === 0;
+  if (!fresh) return;
+  restorePrompted = true;
+  try {
+    const file = await bkHandle.getFile();
+    const text = await file.text();
+    if (!text.trim()) return;
+    const restored = normalize(JSON.parse(text));
+    if (Object.keys(restored.days).length === 0) return;
+    const undo = snapshotUndo();
+    S = restored; persist(); applyAccent(); route();
+    toast('Restored ' + Object.keys(S.days).length + ' day(s) from your backup file', { undo, ms: 4000 });
+  } catch (e) { /* unreadable file — leave the fresh seed in place */ }
+}
+
+/* Wire the linked handle back up at startup (no prompt without a gesture). */
+async function initBackup() {
+  if (!FS_OK) return;
+  const h = await idb.get('file');
+  if (!h) return;
+  bkHandle = h;
+  const p = await perm(h);
+  if (p === 'granted') { bkState = 'linked'; await maybeRestore(); }
+  else { bkState = 'need-permission'; renderReconnect(); }
+}
+
+/* Blue "reconnect" strip shown above any view when access needs re-granting. */
+function renderReconnect() {
+  if (bkState !== 'need-permission') return;
+  if ($('#reconnectBar')) return;
+  const bar = document.createElement('button');
+  bar.id = 'reconnectBar';
+  bar.className = 'reconnect fade-in';
+  bar.setAttribute('data-act', 'bk-reconnect');
+  bar.innerHTML = ic('down') + '<span>Backup file linked — click to re-grant write access for this session</span><span class="spacer"></span>' + ic('right');
+  app.parentNode.insertBefore(bar, app);
+}
+
+window.addEventListener('beforeunload', () => { applyTemplatesForwardSoon.now(); saveSoon.now(); writeBackup(); persistArtifact(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { writeBackup(); persistArtifact(); } });
+
+function applyAccent() {
+  document.documentElement.style.setProperty('--accent', S.settings.accent);
+}
+
+/* helpers to look things up */
+const catById = id => S.categories.find(c => c.id === id) || null;
+const linkById = id => S.settings.links.find(l => l.id === id) || null;
+const tplById = id => S.templates.find(t => t.id === id) || null;
+
+/* ════════════════════════════════════════════════════════════════
+   DAY GENERATION, TEMPLATE SYNC & STATS
+   ════════════════════════════════════════════════════════════════ */
+const byTimeThenOrder = (a, b) =>
+  (a.time || '99:99').localeCompare(b.time || '99:99') || ((a.order ?? 0) - (b.order ?? 0));
+
+/* Build a fresh routine list for a date from the recurring templates. */
+function buildRoutine(ds) {
+  const w = dowMon1(ds);
+  return S.templates
+    .filter(t => t.days.includes(w))
+    .slice().sort(byTimeThenOrder)
+    .map(t => ({ id: uid(), tid: t.id, title: t.title, time: t.time, cat: t.cat, done: false }));
+}
+
+/* Create a day record on demand — nothing is ever pre-created. */
+function ensureDay(ds) {
+  if (!isWeekday(ds)) return null;
+  if (!S.days[ds]) { S.days[ds] = { routine: buildRoutine(ds), extra: [], notes: '' }; persist(); }
+  return S.days[ds];
+}
+
+/* After editing templates in Settings, push the change into every
+   already-generated day from today forward — while:
+     • never touching past days,
+     • never touching today once you've started ticking it,
+     • keeping tick-state on unchanged items (matched by template id),
+     • keeping any one-off routine items you added by hand to a day. */
+function applyTemplatesForward() {
+  const t0 = todayYMD();
+  for (const ds of Object.keys(S.days)) {
+    if (ds < t0 || !isWeekday(ds)) continue;
+    const d = S.days[ds];
+    if (d.off) continue;                                // day off — leave untouched
+    const anyDone = d.routine.some(t => t.done);
+    if (ds === t0 && anyDone) continue;                 // day already in progress
+    const manual = d.routine.filter(t => !t.tid);       // hand-added, keep as-is
+    const doneMap = {};
+    d.routine.forEach(t => { if (t.tid) doneMap[t.tid] = t.done; });
+    d.routine = buildRoutine(ds)
+      .map(t => ({ ...t, done: !!doneMap[t.tid] }))
+      .concat(manual);
+  }
+  saveSoon();
+}
+const applyTemplatesForwardSoon = debounce(applyTemplatesForward, 500);
+
+function statsFor(ds) {
+  const d = S.days[ds];
+  if (!d) return { done: 0, total: 0 };
+  const all = d.routine.concat(d.extra);
+  return { done: all.filter(t => t.done).length, total: all.length };
+}
+function dayComplete(ds) {
+  const s = statsFor(ds);
+  return s.total > 0 && s.done === s.total;
+}
+const isOffDay = ds => !!(S.days[ds] && S.days[ds].off);
+/* Status drives every colour on the calendar: off > done > overdue > part > todo */
+function statusFor(ds) {
+  if (isOffDay(ds)) return 'off';
+  const { done, total } = statsFor(ds);
+  if (total > 0 && done === total) return 'done';
+  if (ds < todayYMD() && S.days[ds] && done < total) return 'over';
+  if (done > 0) return 'part';
+  return 'todo';
+}
+function streak() {
+  let n = 0, ds = todayYMD();
+  if (!isWeekday(ds)) ds = prevWeekday(ds);
+  while (isOffDay(ds)) ds = prevWeekday(ds);   // leave never breaks a run — skip it
+  if (dayComplete(ds)) n++;              // today counts once finished…
+  ds = prevWeekday(ds);                  // …but an unfinished today doesn't break the run
+  for (;;) {
+    if (isOffDay(ds)) { ds = prevWeekday(ds); continue; }
+    if (!dayComplete(ds)) break;
+    n++; ds = prevWeekday(ds);
+  }
+  return n;
+}
+function monthStats(y, m) {
+  const t0 = todayYMD();
+  const last = new Date(y, m + 1, 0).getDate();
+  let done = 0, total = 0;
+  for (let d = 1; d <= last; d++) {
+    const ds = ymd(new Date(y, m, d));
+    if (!isWeekday(ds)) continue;
+    if (ds > t0) break;                  // only weekdays that have happened
+    if (isOffDay(ds)) continue;          // leave doesn't count either way
+    total++;
+    if (dayComplete(ds)) done++;
+  }
+  return { done, total };
+}
+
+const cptsPct = () => Math.round(S.settings.cptsDone / S.settings.cptsTotal * 100);
+
+/* Longest run of fully-completed weekdays on record */
+function bestStreak() {
+  const keys = Object.keys(S.days).sort();
+  if (!keys.length) return 0;
+  let ds = keys[0]; if (!isWeekday(ds)) ds = nextWeekday(ds);
+  const end = todayYMD();
+  let best = 0, run = 0;
+  while (ds <= end) {
+    if (isOffDay(ds)) { ds = nextWeekday(ds); continue; }   // leave is neutral
+    if (dayComplete(ds)) { run++; if (run > best) best = run; } else run = 0;
+    ds = nextWeekday(ds);
+  }
+  return Math.max(best, streak());
+}
+/* The last n elapsed weekdays, oldest → newest */
+function lastWeekdays(n) {
+  let ds = todayYMD(); if (!isWeekday(ds)) ds = prevWeekday(ds);
+  const out = [ds];
+  while (out.length < n) { ds = prevWeekday(ds); out.unshift(ds); }
+  return out;
+}
+/* Most recent past weekday still holding unfinished planned tasks */
+function unfinishedFrom(ds) {
+  let p = prevWeekday(ds);
+  for (let hops = 0; hops < 10; hops++, p = prevWeekday(p)) {
+    const rec = S.days[p];
+    if (rec) { const u = rec.extra.filter(t => !t.done).length; if (u) return { ds: p, count: u }; }
+  }
+  return null;
+}
+/* Nudge the settings gear when a backup is overdue */
+function backupDue() {
+  if (Object.keys(S.days).length < 3) return false;
+  if (!S.settings.lastExport) return true;
+  return Date.now() - Date.parse(S.settings.lastExport) > 14 * 864e5;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MINI MARKDOWN  —  bold, italic, `code`, ```blocks```, lists, ###
+   (input is escaped first, so notes can safely contain HTML/payloads)
+   ════════════════════════════════════════════════════════════════ */
+function mdRender(src) {
+  if (!src || !src.trim()) return '<p class="md-empty">Nothing here yet.</p>';
+  src = src.replace(/\r\n?/g, '\n');
+  const fences = [];
+  src = src.replace(/```([\s\S]*?)```/g, (m, code) => {
+    fences.push('<pre class="md-pre"><code>' + esc(code.replace(/^\n|\n$/g, '')) + '</code></pre>');
+    return '\u0000' + (fences.length - 1) + '\u0000';
+  });
+  const inline = s => esc(s)
+    .replace(/`([^`]+)`/g, '<code class="md-code">$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>');
+  let html = '', list = null;
+  const closeList = () => { if (list) { html += '</' + list + '>'; list = null; } };
+  for (const raw of src.split('\n')) {
+    const t = raw.trim();
+    let m;
+    if (m = t.match(/^\u0000(\d+)\u0000$/)) { closeList(); html += fences[+m[1]]; continue; }
+    if (!t) { closeList(); continue; }
+    if (m = t.match(/^(#{1,3})\s+(.*)/)) { closeList(); const h = m[1].length + 3; html += `<h${h} class="md-h${h}">` + inline(m[2]) + `</h${h}>`; continue; }
+    if (m = t.match(/^[-*]\s+(.*)/)) { if (list !== 'ul') { closeList(); html += '<ul class="md-ul">'; list = 'ul'; } html += '<li>' + inline(m[1]) + '</li>'; continue; }
+    if (m = t.match(/^\d+[.)]\s+(.*)/)) { if (list !== 'ol') { closeList(); html += '<ol class="md-ol">'; list = 'ol'; } html += '<li>' + inline(m[1]) + '</li>'; continue; }
+    closeList(); html += '<p class="md-p">' + inline(t) + '</p>';
+  }
+  closeList();
+  return html;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   TOASTS & UNDO  —  destructive actions never ask "are you sure";
+   they happen, and the toast offers Undo (full-state snapshot).
+   ════════════════════════════════════════════════════════════════ */
+function toast(msg, opts = {}) {
+  const box = $('#toasts');
+  while (box.children.length > 2) box.firstChild.remove();
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = '<span>' + esc(msg) + '</span>';
+  if (opts.undo) {
+    const b = document.createElement('button');
+    b.className = 'toast-undo'; b.textContent = 'Undo';
+    b.onclick = () => { opts.undo(); el.remove(); };
+    el.appendChild(b);
+  }
+  if (opts.actionLabel && opts.action) {
+    const b = document.createElement('button');
+    b.className = 'toast-undo'; b.textContent = opts.actionLabel;
+    b.onclick = () => { opts.action(); el.remove(); };
+    el.appendChild(b);
+  }
+  box.appendChild(el);
+  setTimeout(() => el.remove(), opts.ms || 6500);
+}
+/* Take a snapshot *before* a destructive change; returns the undo fn. */
+function snapshotUndo() {
+  const snap = structuredClone(S);
+  return () => { S = snap; persist(); applyAccent(); route(); toast('Restored'); };
+}
+
+/* ════════════════════════════════════════════════════════════════
+   ICONS  —  tiny inline stroke set
+   ════════════════════════════════════════════════════════════════ */
+const ICONS = {
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01A1.7 1.7 0 0 0 10 3.09V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01A1.7 1.7 0 0 0 20.91 10H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/>',
+  help:'<circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4"/><path d="M12 17.5h.01"/>',
+  left:'<path d="m15 18-6-6 6-6"/>',
+  right:'<path d="m9 18 6-6-6-6"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  check:'<path d="m4.5 12.5 5 5 10-11"/>',
+  trash:'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  pencil:'<path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/>',
+  grip:'<circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/>',
+  cal:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/>',
+  ext:'<path d="M14 4h6v6M20 4 11 13M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6"/>',
+  down:'<path d="M12 4v12m0 0 5-5m-5 5-5-5M4 20h16"/>',
+  up:'<path d="M12 20V8m0 0 5 5m-5-5-5 5M4 4h16"/>',
+  chart:'<path d="M5 20v-6M11 20V6M17 20v-9M3 20h18"/>',
+  clip:'<rect x="6" y="5" width="12" height="16" rx="2"/><path d="M9 5V3h6v2M9 11h6M9 15h4"/>',
+  eye:'<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/>',
+  eyeoff:'<path d="M2 12s3.5-6 10-6c1.4 0 2.7.3 3.9.7M22 12s-3.5 6-10 6c-1.4 0-2.7-.3-3.9-.7"/><path d="m4 4 16 16"/>',
+  pull:'<path d="M12 3v9m0 0 3.5-3.5M12 12 8.5 8.5"/><rect x="4" y="15" width="16" height="6" rx="2"/>',
+  moon:'<path d="M20 13.5A8 8 0 1 1 10.5 4a6.5 6.5 0 0 0 9.5 9.5z"/>',
+  week:'<rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="16" rx="1.5"/><rect x="17" y="4" width="4" height="16" rx="1.5"/>',
+  target:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/>',
+  note:'<path d="M5 4h11l3 3v13H5z"/><path d="M9 9h6M9 13h6M9 17h4"/>',
+  phone:'<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
+};
+const ic = (name, cls = '') =>
+  `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+
+/* Progress ring used on calendar cells */
+function ring(pct, cls, size = 26, sw = 3) {
+  const r = (size - sw) / 2, c = 2 * Math.PI * r;
+  return `<svg class="ring ${cls}" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">
+    <circle class="ring-track" cx="${size/2}" cy="${size/2}" r="${r}" stroke-width="${sw}"/>
+    <circle class="ring-val" cx="${size/2}" cy="${size/2}" r="${r}" stroke-width="${sw}"
+      stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${(c * (1 - pct)).toFixed(2)}"
+      transform="rotate(-90 ${size/2} ${size/2})"/></svg>`;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   VIEW STATE
+   ════════════════════════════════════════════════════════════════ */
+let viewY = null, viewM = null;        // calendar month being shown
+let calFocus = null;                   // keyboard-focused date on calendar
+let cur = { view: 'cal', ds: null };   // where we are (for keyboard routing)
+let editingTaskId = null;              // task currently in inline edit
+let notesMode = 'write';               // 'write' | 'preview'
+let focusTaskId = null;                // restore focus after re-render
+let carryMoveId = null;                // carry item showing its date picker
+let celebrate = false;                 // pulse the status pill when a day completes
+let eodDs = null;                      // day the EOD overlay was built from
+
+const app = $('#app');
+const go = h => { location.hash = h; };
+
+/* ════════════════════════════════════════════════════════════════
+   SHARED PIECES
+   ════════════════════════════════════════════════════════════════ */
+function topbarHTML() {
+  document.body.dataset.view = cur.view;          // drives the phone tab bar highlight
+  return `<header class="topbar">
+    <button class="brand" data-act="nav-cal" aria-label="Go to calendar">
+      <span class="brand-gem"></span>Daily Ops <small>// tracker</small>
+    </button>
+    <nav class="tb-actions">
+      <button class="icon-btn" data-act="open-search" title="Search &amp; commands — Ctrl+K" aria-label="Search and commands">${ic('search')}</button>
+      <button class="icon-btn" data-act="open-week" title="Week view — W" aria-label="Week view">${ic('week')}</button>
+      <button class="icon-btn" data-act="open-stats" title="Statistics" aria-label="Statistics">${ic('chart')}</button>
+      <button class="icon-btn tb-gear" data-act="open-settings" title="Settings${backupDue() ? ' — backup overdue' : ''}" aria-label="Settings">${ic('gear')}${backupDue() ? '<span class="dot-warn" aria-hidden="true"></span>' : ''}</button>
+      <button class="icon-btn" data-act="open-help" title="Keyboard shortcuts — ?" aria-label="Keyboard shortcuts">${ic('help')}</button>
+    </nav>
+  </header>`;
+}
+const catDot = id => {
+  const c = catById(id);
+  return c ? `<span class="t-cat" style="background:${esc(c.color)}" title="${esc(c.label)}"></span>` : '';
+};
+const catSelect = (f, sel) =>
+  `<select data-f="${f}"><option value="">No category</option>` +
+  S.categories.map(c => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${esc(c.label)}</option>`).join('') +
+  `</select>`;
+
+/* ════════════════════════════════════════════════════════════════
+   CALENDAR VIEW
+   ════════════════════════════════════════════════════════════════ */
+/* One-line pulse of *today* above the grid — tap to open */
+function todayStripHTML() {
+  const t0 = todayYMD();
+  if (!isWeekday(t0)) {
+    const nx = nextWeekday(t0);
+    return `<button class="today-strip fade-in" data-act="open-day" data-ds="${nx}">
+      <span class="ts-label eyebrow">Weekend</span>
+      <span class="ts-main">Off the clock — next weekday is ${fmtShort(nx)}</span>
+      <span class="ts-go">${ic('right')}</span></button>`;
+  }
+  const d = S.days[t0];
+  if (d && d.off) {
+    return `<button class="today-strip fade-in" data-act="open-day" data-ds="${t0}">
+      <span class="ts-label eyebrow">Today</span><span class="off-tag">day off</span>
+      <span class="ts-main">Off the clock — streak is safe</span>
+      <span class="ts-go">${ic('right')}</span></button>`;
+  }
+  const { done, total } = statsFor(t0);
+  const stt = statusFor(t0);
+  let main;
+  if (!d) main = 'Not opened yet — tap to load today\u2019s routine';
+  else if (total && done === total) main = 'Day complete';
+  else {
+    const nx = d.routine.concat(d.extra).filter(t => !t.done)
+      .sort((a, b) => (a.time || '99') < (b.time || '99') ? -1 : 1)[0];
+    main = nx ? 'Next: ' + (nx.time ? `<span class="mono">${nx.time}</span> · ` : '') + esc(nx.title)
+              : 'Nothing on the list yet';
+  }
+  return `<button class="today-strip ts-${stt} fade-in" data-act="open-day" data-ds="${t0}" aria-label="Open today">
+    <span class="ts-label eyebrow">Today</span>
+    ${d ? ring(total ? done / total : 0, 'st-' + stt, 22, 3) : ''}
+    ${d ? `<span class="ts-frac mono">${done}/${total}</span>` : ''}
+    <span class="ts-main">${main}</span>
+    <span class="ts-go">${ic('right')}</span></button>`;
+}
+function renderCalendar() {
+  cur = { view: 'cal', ds: null };
+  const t0 = todayYMD();
+  if (viewY === null) { const n = new Date(); viewY = n.getFullYear(); viewM = n.getMonth(); }
+  if (!calFocus || fromYMD(calFocus).getMonth() !== viewM || fromYMD(calFocus).getFullYear() !== viewY) {
+    const n = new Date();
+    calFocus = (n.getFullYear() === viewY && n.getMonth() === viewM)
+      ? (isWeekday(t0) ? t0 : nextWeekday(t0))
+      : nextWeekday(ymd(new Date(viewY, viewM, 0)));   // first weekday of month
+  }
+
+  /* stats strip */
+  const st = streak();
+  const ms = monthStats(viewY, viewM);
+  const cp = cptsPct();
+
+  /* grid cells */
+  const first = new Date(viewY, viewM, 1);
+  const lead = (first.getDay() === 0 ? 7 : first.getDay()) - 1;
+  const lastDay = new Date(viewY, viewM + 1, 0).getDate();
+  let cells = '<div class="dow eyebrow">Mon</div><div class="dow eyebrow">Tue</div><div class="dow eyebrow">Wed</div><div class="dow eyebrow">Thu</div><div class="dow eyebrow">Fri</div><div class="dow eyebrow wkend">Sat</div><div class="dow eyebrow wkend">Sun</div>';
+  for (let i = 0; i < lead; i++) cells += '<div class="cell cell-blank" aria-hidden="true"></div>';
+  for (let d = 1; d <= lastDay; d++) {
+    const ds = ymd(new Date(viewY, viewM, d));
+    if (!isWeekday(ds)) {
+      cells += `<div class="cell cell-off" aria-hidden="true"><span class="cell-date">${d}</span></div>`;
+      continue;
+    }
+    const rec = S.days[ds];
+    if (rec && rec.off) {
+      cells += `<button class="cell cell-dayoff ${ds === t0 ? 'cell-today' : ''}" data-act="open-day" data-ds="${ds}"
+          tabindex="${ds === calFocus ? 0 : -1}" aria-label="${fmtLong(ds)}, day off">
+        <span class="cell-date">${d}</span>${ring(0, 'st-off')}<span class="cell-frac off-tag">off</span></button>`;
+      continue;
+    }
+    const { done, total } = statsFor(ds);
+    const stcls = 'st-' + statusFor(ds);
+    const pct = total ? done / total : 0;
+    const planned = rec && rec.extra.length
+      ? `<span class="planned-dot" title="${rec.extra.length} planned">${rec.extra.length > 1 ? '<span>' + rec.extra.length + '</span>' : ''}</span>` : '';
+    cells += `<button class="cell ${ds === t0 ? 'cell-today' : ''}" data-act="open-day" data-ds="${ds}"
+        tabindex="${ds === calFocus ? 0 : -1}"
+        aria-label="${fmtLong(ds)}${total ? ', ' + done + ' of ' + total + ' done' : ''}">
+      <span class="cell-date">${d}</span>
+      ${ring(pct, stcls)}
+      <span class="cell-frac">${rec ? done + '/' + total : '&nbsp;'}</span>
+      ${planned}
+    </button>`;
+  }
+
+  app.innerHTML = topbarHTML() + `
+  <section class="stats fade-in">
+    <div class="stat"><span class="eyebrow">Streak</span>
+      <span class="stat-val">${st}<small> day${st === 1 ? '' : 's'}</small></span></div>
+    <div class="stat"><span class="eyebrow">This month</span>
+      <span class="stat-val">${ms.total ? ms.done + '<small>/' + ms.total + ' days</small>' : '<small>—</small>'}</span></div>
+    <div class="stat"><span class="eyebrow">HTB CPTS</span>
+      <span class="stat-val cpts-edit" data-act="cpts-edit" title="Click to update — sections or %" role="button" tabindex="0">${cp}<small>%${S.settings.cptsTotal !== 100 ? ' · ' + S.settings.cptsDone + '/' + S.settings.cptsTotal : ''}</small></span>
+      <div class="bar"><div class="bar-fill" style="width:${cp}%"></div></div></div>
+  </section>
+  ${todayStripHTML()}
+  <section class="card fade-in">
+    <div class="cal-head">
+      <h1 class="cal-title">${monthLabel(viewY, viewM)}</h1>
+      <div class="cal-nav">
+        <button class="icon-btn" data-act="month-prev" aria-label="Previous month">${ic('left')}</button>
+        <button class="btn btn-sm" data-act="month-today">Today</button>
+        <button class="icon-btn" data-act="month-next" aria-label="Next month">${ic('right')}</button>
+      </div>
+    </div>
+    <div class="cal-grid">${cells}</div>
+  </section>
+  <p class="hint">Click a day to open it · <span class="kbd">←→↑↓</span> move · <span class="kbd">Enter</span> open · <span class="kbd">?</span> all shortcuts</p>`;
+}
+
+/* Swap the CPTS figure for an inline input — accepts "45/495" or a percent */
+function cptsEditor(anchor) {
+  const el = (anchor && anchor.classList && anchor.classList.contains('cpts-edit')) ? anchor : $('.cpts-edit');
+  if (!el) return;
+  const val = S.settings.cptsTotal === 100 ? String(S.settings.cptsDone)
+                                           : S.settings.cptsDone + '/' + S.settings.cptsTotal;
+  el.outerHTML = `<input class="cpts-input" id="cptsInput" type="text" inputmode="numeric" value="${val}" aria-label="CPTS progress — sections done/total, or a percent">`;
+  const inp = $('#cptsInput');
+  const back = () => cur.view === 'stats' ? renderStats() : renderCalendar();
+  let committed = false;
+  const commit = () => {
+    if (committed) return; committed = true;
+    const m = inp.value.trim().match(/^(\d+)\s*\/\s*(\d+)$/);
+    if (m) {
+      S.settings.cptsTotal = Math.max(1, +m[2]);
+      S.settings.cptsDone = clamp(+m[1], 0, S.settings.cptsTotal);
+    } else if (inp.value.trim() !== '') {
+      const n = Number(inp.value);
+      if (Number.isFinite(n)) { S.settings.cptsDone = clamp(Math.round(n), 0, 100); S.settings.cptsTotal = 100; }
+    }
+    persist(); back();
+  };
+  inp.focus(); inp.select();
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { committed = true; back(); } });
+  inp.addEventListener('blur', commit);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   DAY VIEW
+   ════════════════════════════════════════════════════════════════ */
+function taskRowHTML(t, list) {
+  if (editingTaskId === t.id) {
+    return `<div class="task-edit" data-id="${t.id}" data-list="${list}">
+      <input type="time" data-f="edit-time" value="${esc(t.time || '')}" aria-label="Time">
+      <input type="text" data-f="edit-title" value="${esc(t.title)}" aria-label="Task name">
+      ${catSelect('edit-cat', t.cat)}
+      <button class="btn btn-sm btn-acc" data-act="save-task">Save</button>
+      <button class="btn btn-sm" data-act="cancel-edit">Cancel</button>
+      <button class="icon-btn btn-danger" data-act="del-task" data-id="${t.id}" data-list="${list}" aria-label="Delete task">${ic('trash')}</button>
+    </div>`;
+  }
+  return `<div class="task ${t.done ? 'done' : ''}" data-id="${t.id}" data-list="${list}"
+       role="checkbox" aria-checked="${t.done}" tabindex="0" aria-label="${esc(t.title)}">
+    <span class="grip" data-grip title="Drag to reorder">${ic('grip')}</span>
+    <button class="cb" data-act="toggle-task" tabindex="-1" aria-hidden="true">${ic('check')}</button>
+    <span class="t-time">${esc(t.time || '')}</span>
+    <span class="t-title">${esc(t.title)}</span>
+    ${catDot(t.cat)}
+    <span class="t-actions">
+      <button class="icon-btn" data-act="edit-task" aria-label="Edit">${ic('pencil')}</button>
+      <button class="icon-btn btn-danger" data-act="del-task" data-id="${t.id}" data-list="${list}" aria-label="Delete">${ic('trash')}</button>
+    </span>
+  </div>`;
+}
+
+function carryItemHTML(c) {
+  const mover = carryMoveId === c.id ? `
+    <div class="carry-move-row">
+      <input type="date" id="carryDate" value="${todayYMD()}">
+      <button class="btn btn-sm btn-acc" data-act="carry-move-go" data-id="${c.id}">Move</button>
+      <button class="btn btn-sm" data-act="carry-cancel">Cancel</button>
+    </div>` : '';
+  return `<div class="carry-item" data-id="${c.id}">
+    <span class="carry-text">${esc(c.text)}</span>
+    <button class="icon-btn" data-act="carry-move" data-id="${c.id}" title="Schedule on a day" aria-label="Schedule">${ic('cal')}</button>
+    <button class="icon-btn btn-danger" data-act="carry-done" data-id="${c.id}" title="Clear" aria-label="Clear">${ic('trash')}</button>
+  </div>${mover}`;
+}
+
+function renderDay(ds, keepScroll = false) {
+  if (!isWeekday(ds)) { go('/'); return; }
+  const y = window.scrollY;
+  cur = { view: 'day', ds };
+  const d = ensureDay(ds);
+  const t0 = todayYMD();
+  const { done, total } = statsFor(ds);
+  const stt = statusFor(ds);
+  const vis = a => S.settings.hideDone ? a.filter(t => !t.done) : a;
+  const pull = ds === t0 ? unfinishedFrom(ds) : null;
+  const pillTxt = { done: 'Complete', part: 'In progress', todo: ds < t0 ? 'Untouched' : 'Not started', over: 'Incomplete', off: 'Day off' }[stt];
+  const links = S.settings.links.map(l =>
+    `<a class="chip" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)} ${ic('ext')}</a>`).join('');
+
+  app.innerHTML = topbarHTML() + `
+  <div class="fade-in">
+  <div class="day-head">
+    <button class="icon-btn" data-act="back-cal" title="Back to calendar — Esc" aria-label="Back to calendar">${ic('left')}</button>
+    <h1 class="day-title">${fromYMD(ds).toLocaleDateString('en-GB',{weekday:'long'})} <span class="mono">· ${fmtLong(ds).replace(/^\w+,?\s*/,'')}</span></h1>
+    <span class="pill pill-${stt}${celebrate ? ' pill-pulse' : ''}">${pillTxt}</span>
+    <span class="spacer"></span>
+    <button class="icon-btn ${d.off ? 'on' : ''}" data-act="toggle-off" title="${d.off ? 'Unmark day off' : 'Mark as day off — excluded from streaks & stats'}" aria-label="Toggle day off">${ic('moon')}</button>
+    <button class="icon-btn" data-act="day-prev" title="Previous weekday — ←" aria-label="Previous weekday">${ic('left')}</button>
+    <button class="icon-btn" data-act="day-next" title="Next weekday — →" aria-label="Next weekday">${ic('right')}</button>
+  </div>
+  <div class="day-sub">${links}<span class="spacer"></span>
+    <button class="btn btn-sm" data-act="eod" title="Build a copy-ready end-of-day summary">${ic('clip')} EOD log</button>
+    ${ds !== t0 ? '<button class="btn btn-sm" data-act="jump-today">Jump to today</button>' : ''}</div>
+
+  <div class="day-grid">
+    <div class="day-main">
+      ${d.off ? `
+      <section class="card off-card">
+        <span class="off-tag">day off</span>
+        <h2>Off the clock</h2>
+        <p class="note-dim" style="margin:0">This day sits outside streaks, stats and the heatmap — leave shouldn't cost you a run. Notes below still work if you want to log why. ${d.extra.filter(t=>!t.done).length ? 'Unfinished planned work here will still be offered for pull-in later.' : ''}</p>
+        <button class="btn btn-sm" data-act="toggle-off">${ic('moon')} Unmark day off</button>
+      </section>` : `
+      <section class="card" id="card-routine">
+        <div class="card-h"><span class="eyebrow">Routine · ${DAY_NAMES[dowMon1(ds)]}</span>
+          <span style="display:flex;align-items:center;gap:8px">
+            <span class="count">${d.routine.filter(t=>t.done).length}/${d.routine.length}</span>
+            <button class="icon-btn ${S.settings.hideDone ? 'on' : ''}" data-act="hide-done"
+              title="${S.settings.hideDone ? 'Show' : 'Hide'} completed tasks">${ic(S.settings.hideDone ? 'eyeoff' : 'eye')}</button>
+          </span></div>
+        <div class="task-list" id="list-routine">
+          ${d.routine.length ? (vis(d.routine).length ? vis(d.routine).map(t => taskRowHTML(t, 'routine')).join('')
+              : '<p class="empty">Everything ticked — hidden. Toggle the eye to show.</p>')
+            : '<p class="empty">No routine for this weekday. Add defaults in Settings → Routine, or add a one-off below.</p>'}
+        </div>
+        <div class="add-row">
+          <input type="text" id="addRoutineTitle" placeholder="Add a task to this day only…" aria-label="Add routine task">
+          <input type="time" id="addRoutineTime" aria-label="Time (optional)">
+          <button class="btn btn-sm" data-act="add-routine">${ic('plus')} Add</button>
+        </div>
+        <div class="routine-progress">
+          <span class="eyebrow">Day</span>
+          <div class="bar"><div class="bar-fill" style="width:${total ? (done/total*100) : 0}%"></div></div>
+          <span class="count">${done}/${total}</span>
+        </div>
+      </section>
+
+      <section class="card extra-card" id="card-extra">
+        <div class="card-h"><span class="eyebrow" style="color:var(--accent)">Planned · one-off work</span>
+          <span class="count">${d.extra.filter(t=>t.done).length}/${d.extra.length}</span></div>
+        ${pull ? `<button class="pull-banner" data-act="pull-in" data-ds="${pull.ds}">
+            ${ic('pull')} ${pull.count} unfinished planned task${pull.count === 1 ? '' : 's'} from ${fmtShort(pull.ds)} — pull in</button>` : ''}
+        <div class="task-list" id="list-extra">
+          ${d.extra.length ? (vis(d.extra).length ? vis(d.extra).map(t => taskRowHTML(t, 'extra')).join('')
+              : '<p class="empty">All planned work ticked — hidden.</p>')
+            : '<p class="empty">Nothing planned for this day yet.</p>'}
+        </div>
+        <div class="add-row">
+          <input type="text" id="addExtraTitle" placeholder="Plan something… (pick any date)" aria-label="Add planned task">
+          <input type="time" id="addExtraTime" aria-label="Time (optional)">
+          <input type="date" id="addExtraDate" value="${ds}" aria-label="Target date">
+          <button class="btn btn-sm btn-acc" data-act="add-extra">${ic('plus')} Add</button>
+        </div>
+      </section>`}
+
+      <section class="card" id="card-notes">
+        <div class="card-h"><span class="eyebrow">Notes &amp; findings</span>
+          <span style="display:flex;align-items:center;gap:10px">
+            <span class="saved-flag" id="savedFlag">saved ✓</span>
+            <span class="notes-tabs" role="tablist">
+              <button class="tab ${notesMode==='write'?'tab-on':''}" data-act="notes-write" role="tab">Write</button>
+              <button class="tab ${notesMode==='preview'?'tab-on':''}" data-act="notes-preview" role="tab">Preview</button>
+            </span>
+          </span>
+        </div>
+        ${notesMode === 'write' ? `
+          <div class="md-toolbar">
+            <button class="icon-btn" data-act="md-bold" title="Bold — **text**">B</button>
+            <button class="icon-btn" data-act="md-code" title="Inline code — \`text\`">&lt;/&gt;</button>
+            <button class="icon-btn" data-act="md-block" title="Code block — \`\`\`">{ }</button>
+            <button class="icon-btn" data-act="md-list" title="List — - item">•—</button>
+          </div>
+          <textarea class="notes-ta" id="notesTa" placeholder="Evidence, blockers, payloads, things learned… autosaves as you type. **bold**, \`code\`, \`\`\`blocks\`\`\`, - lists." spellcheck="false">${esc(d.notes)}</textarea>`
+        : `<div class="md-view">${mdRender(d.notes)}</div>`}
+      </section>
+
+    </div>
+    <aside class="day-side">
+      <section class="card" id="card-carry">
+        <div class="card-h"><span class="eyebrow">Carry forward</span><span class="count">${S.carry.length}</span></div>
+        <div>${S.carry.length ? S.carry.map(carryItemHTML).join('')
+          : '<p class="empty">Nothing waiting. Park undated follow-ups here — they stay visible on every day until scheduled or cleared.</p>'}</div>
+        <div class="add-row">
+          <input type="text" id="addCarryText" placeholder="Pick this up later…" aria-label="Add carry-forward item">
+          <button class="btn btn-sm" data-act="carry-add">${ic('plus')} Add</button>
+        </div>
+      </section>
+    </aside>
+  </div></div>`;
+  celebrate = false;                    // the pulse plays once per completion
+
+  /* wire the bits that need real element listeners */
+  const ta = $('#notesTa');
+  if (ta) {
+    const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.max(190, ta.scrollHeight) + 'px'; };
+    grow();
+    const flag = $('#savedFlag');
+    const saveNotes = debounce(() => {
+      d.notes = ta.value; persist();
+      flag.classList.add('show'); setTimeout(() => flag.classList.remove('show'), 1200);
+    }, 400);
+    ta.addEventListener('input', () => { grow(); saveNotes(); });
+    ta.addEventListener('blur', () => { d.notes = ta.value; persist(); });
+  }
+  ['addRoutineTitle', 'addExtraTitle', 'addCarryText'].forEach((id, i) => {
+    const el = $('#' + id);
+    if (el) el.addEventListener('keydown', e => {
+      if (e.key === 'Enter') doAct(['add-routine', 'add-extra', 'carry-add'][i], el);
+    });
+  });
+  attachSort($('#list-routine'), ids => { reorderList(ds, 'routine', ids); });
+  attachSort($('#list-extra'),   ids => { reorderList(ds, 'extra', ids); });
+  updateNowMarker();
+
+  if (keepScroll) window.scrollTo(0, y);
+  if (focusTaskId) { const r = $(`.task[data-id="${focusTaskId}"]`); if (r) r.focus(); focusTaskId = null; }
+}
+const refreshDay = () => { if (cur.view === 'day') renderDay(cur.ds, true); };
+
+/* ════════════════════════════════════════════════════════════════
+   DRAG-TO-REORDER  (pointer-based; works with touch via the grip)
+   ════════════════════════════════════════════════════════════════ */
+function attachSort(listEl, onDone) {
+  if (!listEl) return;
+  listEl.addEventListener('pointerdown', e => {
+    const grip = e.target.closest('[data-grip]'); if (!grip) return;
+    const row = grip.closest('[data-id]'); if (!row) return;
+    e.preventDefault();
+    row.classList.add('dragging'); row.style.pointerEvents = 'none';
+    const move = ev => {
+      const overEl = document.elementFromPoint(ev.clientX, ev.clientY);
+      const over = overEl && overEl.closest ? overEl.closest('[data-id]') : null;
+      if (over && over !== row && over.parentElement === listEl) {
+        const r = over.getBoundingClientRect();
+        listEl.insertBefore(row, ev.clientY < r.top + r.height / 2 ? over : over.nextSibling);
+      }
+    };
+    const up = () => {
+      row.classList.remove('dragging'); row.style.pointerEvents = '';
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+      onDone($$(':scope > [data-id]', listEl).map(n => n.dataset.id));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  });
+}
+function reorderList(ds, list, ids) {
+  const d = S.days[ds]; if (!d) return;
+  /* Permute only the rows that were visible in the drag — tasks hidden
+     by "hide completed" keep their slots instead of being dropped. */
+  const pick = new Set(ids);
+  const chosen = ids.map(id => d[list].find(t => t.id === id)).filter(Boolean);
+  let i = 0;
+  d[list] = d[list].map(t => pick.has(t.id) ? chosen[i++] : t);
+  persist(); refreshDay();
+}
+
+/* ════════════════════════════════════════════════════════════════
+   SETTINGS VIEW
+   ════════════════════════════════════════════════════════════════ */
+const SWATCHES = ['#8b7cff', '#4da3ff', '#2dd4bf', '#3dd68c', '#f5a83c', '#f472b6', '#f4707a', '#e2e8f0'];
+
+function tplRowHTML(t) {
+  const chips = [1, 2, 3, 4, 5].map(dn =>
+    `<button class="dchip ${t.days.includes(dn) ? 'dchip-on' : ''}" data-act="tpl-day"
+       data-id="${t.id}" data-d="${dn}" title="${DAY_NAMES[dn]}" aria-pressed="${t.days.includes(dn)}">${DAY_LETTERS[dn]}</button>`).join('');
+  return `<div class="tpl-row" data-id="${t.id}">
+    <span class="grip" data-grip title="Drag to reorder">${ic('grip')}</span>
+    <input type="time" data-f="tpl-time" value="${esc(t.time || '')}" aria-label="Time">
+    <input type="text" data-f="tpl-title" value="${esc(t.title)}" aria-label="Task name">
+    <span class="daychips">${chips}</span>
+    ${catSelect('tpl-cat', t.cat)}
+    <button class="icon-btn btn-danger" data-act="tpl-del" data-id="${t.id}" aria-label="Delete routine task">${ic('trash')}</button>
+  </div>`;
+}
+
+/* The "Automatic backup file" control inside Settings → Data */
+function backupBoxHTML() {
+  if (!FS_OK) {
+    return `<div class="bk-box"><div class="bk-row">
+      <span class="bk-dot"></span>
+      <span class="bk-name">Automatic backup file — <span class="mono">needs a Chromium browser</span></span>
+    </div>
+    <p class="note-dim" style="margin:8px 0 0">This browser doesn't support writing to a chosen file. Use Export / Import to keep copies, or open the app in Chrome, Edge or Brave to switch on live mirroring.</p></div>`;
+  }
+  if (bkState === 'linked') {
+    return `<div class="bk-box"><div class="bk-row">
+      <span class="bk-dot on"></span>
+      <span class="bk-name">Auto-backup on${bkHandle && bkHandle.name ? ' → <span class="mono">' + esc(bkHandle.name) + '</span>' : ''}</span>
+      <button class="btn btn-sm" data-act="bk-now">Back up now</button>
+      <button class="btn btn-sm btn-danger" data-act="bk-unlink">Stop</button>
+    </div>
+    <p class="note-dim" style="margin:8px 0 0">Last written: <span class="mono" id="bkStamp">${S.settings.lastAuto ? fmtStamp(S.settings.lastAuto) : '—'}</span> · every change is mirrored automatically.</p></div>`;
+  }
+  if (bkState === 'need-permission') {
+    return `<div class="bk-box"><div class="bk-row">
+      <span class="bk-dot warn"></span>
+      <span class="bk-name">Backup file linked — access needs re-granting</span>
+      <button class="btn btn-sm btn-acc" data-act="bk-reconnect">Reconnect</button>
+      <button class="btn btn-sm btn-danger" data-act="bk-unlink">Forget</button>
+    </div>
+    <p class="note-dim" style="margin:8px 0 0">Browsers drop file permission between sessions for safety. One click restores it for this session.</p></div>`;
+  }
+  return `<div class="bk-box"><div class="bk-row">
+    <span class="bk-dot"></span>
+    <span class="bk-name">Automatic backup file — <span class="mono">off</span></span>
+    <button class="btn btn-sm btn-acc" data-act="bk-link">Link a backup file</button>
+  </div>
+  <p class="note-dim" style="margin:8px 0 0">Pick or create a <span class="mono">.json</span> file once; the app then mirrors every change to it. If you ever open this app in a fresh browser and it's empty, reconnect the same file to restore everything.</p></div>`;
+}
+
+function renderSettings() {
+  cur = { view: 'set', ds: null };
+  app.innerHTML = topbarHTML() + `
+  <div class="set-grid fade-in">
+  <div class="day-head" style="margin-bottom:0">
+    <button class="icon-btn" data-act="back-cal" aria-label="Back">${ic('left')}</button>
+    <h1 class="day-title">Settings</h1>
+  </div>
+
+  <section class="card">
+    <div class="card-h"><span class="eyebrow">Appearance</span></div>
+    <div class="swatches">
+      ${SWATCHES.map(c => `<button class="swatch ${S.settings.accent === c ? 'swatch-on' : ''}"
+          style="background:${c}" data-act="acc-swatch" data-c="${c}" aria-label="Accent ${c}"></button>`).join('')}
+      <input type="color" data-f="acc-custom" value="${esc(S.settings.accent)}" title="Custom accent">
+    </div>
+    <div class="add-row" style="margin-top:12px;align-items:center">
+      <span class="eyebrow" style="flex:none">EOD nudge</span>
+      <input type="time" data-f="eod-at" value="${esc(S.settings.eodAt)}" aria-label="EOD reminder time" style="max-width:130px">
+      <span class="note-dim" style="margin:0">In-app banner while a tab is open — no notifications, no server.</span>
+    </div>
+    <p class="note-dim">One accent, used everywhere. Status colours stay fixed so meaning never shifts: <span style="color:var(--ok)">green = done</span>, <span style="color:var(--info)">blue = in progress</span>, <span style="color:var(--warn)">amber = overdue</span>.</p>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><span class="eyebrow">Routine — recurring tasks</span>
+      <button class="btn btn-sm" data-act="tpl-add">${ic('plus')} Add task</button></div>
+    <div id="tpl-list">${S.templates.slice().sort((a,b)=>a.order-b.order).map(tplRowHTML).join('')
+      || '<p class="empty">No recurring tasks. Add your first one.</p>'}</div>
+    <p class="note-dim">Pick the weekdays each task repeats on — all five = every weekday. Changes apply to today (if untouched) and all future days automatically. Past days and any day you've started ticking are left exactly as they were.</p>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><span class="eyebrow">Categories</span>
+      <button class="btn btn-sm" data-act="cat-add">${ic('plus')} Add category</button></div>
+    <div>${S.categories.map(c => `<div class="cat-row" data-id="${c.id}">
+        <input type="color" data-f="cat-color" value="${esc(c.color)}" aria-label="Colour">
+        <input type="text" data-f="cat-label" value="${esc(c.label)}" aria-label="Category name">
+        <button class="icon-btn btn-danger" data-act="cat-del" data-id="${c.id}" aria-label="Delete category">${ic('trash')}</button>
+      </div>`).join('') || '<p class="empty">No categories yet.</p>'}</div>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><span class="eyebrow">Quick links</span>
+      <button class="btn btn-sm" data-act="link-add">${ic('plus')} Add link</button></div>
+    <div>${S.settings.links.map(l => `<div class="link-row" data-id="${l.id}">
+        <input type="text" data-f="link-label" value="${esc(l.label)}" aria-label="Label">
+        <input type="url" data-f="link-url" value="${esc(l.url)}" aria-label="URL" placeholder="https://…">
+        <button class="icon-btn btn-danger" data-act="link-del" data-id="${l.id}" aria-label="Delete link">${ic('trash')}</button>
+      </div>`).join('') || '<p class="empty">No links. Add the ones you open every day.</p>'}</div>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><span class="eyebrow">Data</span></div>
+    <div class="data-actions">
+      <button class="btn" data-act="export">${ic('down')} Export backup</button>
+      <button class="btn" data-act="import">${ic('up')} Import backup</button>
+      <button class="btn" data-act="xfer-copy">${ic('phone')} Copy transfer code</button>
+      <button class="btn" data-act="xfer-open">Enter transfer code</button>
+      <button class="btn btn-danger" data-act="reset">Reset everything</button>
+    </div>
+    <p class="note-dim">Transfer codes move everything phone ↔ laptop with one paste — no files needed.</p>
+    <p class="note-dim">Last manual backup: <span class="mono">${S.settings.lastExport ? fmtShort(ymd(new Date(S.settings.lastExport))) : 'never'}</span>${backupDue() ? ' — <span style="color:var(--warn)">overdue</span>' : ''}</p>
+    ${backupBoxHTML()}
+    <p class="note-dim">Data lives in this browser's localStorage, tied to this address — nothing leaves your machine. A linked backup file (above) mirrors every change so a cleared cache or a new browser can't wipe you; manual Export / Import still work for moving between machines. Import and reset are undoable from the toast.</p>
+  </section>
+  </div>`;
+  attachSort($('#tpl-list'), ids => {
+    ids.forEach((id, i) => { const t = tplById(id); if (t) t.order = i; });
+    persist(); applyTemplatesForward(); renderSettings();
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════
+   OVERLAYS — search & shortcut help
+   ════════════════════════════════════════════════════════════════ */
+const overlays = $('#overlays');
+const overlayOpen = () => !!overlays.firstElementChild;
+const closeOverlay = () => { overlays.innerHTML = ''; };
+
+function snippet(text, q) {
+  const i = text.toLowerCase().indexOf(q);
+  const a = Math.max(0, i - 34), b = Math.min(text.length, i + q.length + 46);
+  return (a > 0 ? '…' : '') + esc(text.slice(a, i)) +
+    '<mark>' + esc(text.slice(i, i + q.length)) + '</mark>' +
+    esc(text.slice(i + q.length, b)) + (b < text.length ? '…' : '');
+}
+function searchIndex() {
+  const out = [];
+  for (const ds of Object.keys(S.days).sort().reverse()) {
+    const d = S.days[ds];
+    d.routine.forEach(t => out.push({ ds, where: 'routine', text: t.title }));
+    d.extra.forEach(t => out.push({ ds, where: 'planned', text: t.title }));
+    if (d.notes.trim()) out.push({ ds, where: 'notes', text: d.notes });
+  }
+  S.carry.forEach(c => out.push({ ds: todayYMD(), where: 'carry forward', text: c.text }));
+  return out;
+}
+let sSel = 0;
+function openSearch() {
+  closeOverlay();
+  overlays.innerHTML = `<div class="ov" role="dialog" aria-label="Search">
+    <div class="ov-panel">
+      <input class="search-input" id="sInput" placeholder="Search — or type a command…" autocomplete="off">
+      <div class="s-res" id="sRes"><p class="s-none">Type to search everything you've written.</p></div>
+    </div></div>`;
+  const inp = $('#sInput'), res = $('#sRes');
+  const idx = searchIndex();
+  const CMDS = [
+    { label: 'Go to today', cmd: 'today' },
+    { label: 'Calendar', cmd: 'cal' },
+    { label: 'Statistics', cmd: 'stats' },
+    { label: 'Settings', cmd: 'settings' },
+    { label: 'Week view', cmd: 'week' },
+    { label: 'EOD log for today', cmd: 'eod' },
+    { label: 'Plan a task', cmd: 'plan' },
+    { label: 'Export backup', cmd: 'export' },
+    { label: 'Keyboard help', cmd: 'help' },
+  ];
+  const run = () => {
+    const q = inp.value.trim().toLowerCase();
+    sSel = 0;
+    const cmds = q ? CMDS.filter(c => c.label.toLowerCase().includes(q)) : CMDS;
+    const hits = q.length >= 2 ? idx.filter(e => e.text.toLowerCase().includes(q)).slice(0, 40) : [];
+    let html = cmds.map((c, i) =>
+      `<button class="s-item s-cmd ${i === 0 ? 's-item-on' : ''}" data-act="s-cmd" data-cmd="${c.cmd}">
+        <span class="s-top"><span class="s-where">command</span></span>
+        <span class="s-snip">${c.label}</span>
+      </button>`).join('');
+    html += hits.map((h, i) =>
+      `<button class="s-item ${!cmds.length && i === 0 ? 's-item-on' : ''}" data-act="s-open" data-ds="${h.ds}">
+        <span class="s-top"><span class="s-date">${fmtShort(h.ds)}</span><span class="s-where">${h.where}</span></span>
+        <span class="s-snip">${snippet(h.text, q)}</span>
+      </button>`).join('');
+    res.innerHTML = html || '<p class="s-none">No matches. Try fewer words.</p>';
+  };
+  inp.addEventListener('input', run);
+  inp.addEventListener('keydown', e => {
+    const items = $$('.s-item', res);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!items.length) return;
+      sSel = clamp(sSel + (e.key === 'ArrowDown' ? 1 : -1), 0, items.length - 1);
+      items.forEach((it, i) => it.classList.toggle('s-item-on', i === sSel));
+      items[sSel].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' && items[sSel]) {
+      doAct(items[sSel].dataset.act, items[sSel]);
+    }
+  });
+  inp.focus();
+  run();                                // show the command list straight away
+}
+function openHelp() {
+  closeOverlay();
+  const row = (k, l) => `<div class="help-row"><span>${l}</span><span class="kbd">${k}</span></div>`;
+  overlays.innerHTML = `<div class="ov" role="dialog" aria-label="Keyboard shortcuts">
+    <div class="ov-panel"><div class="help-body">
+      <span class="eyebrow">Keyboard</span>
+      <div class="help-grid">
+        ${row('Ctrl K', 'Search & commands')}
+        ${row('Esc', 'Back / close')}
+        ${row('← → ↑ ↓', 'Move around the calendar')}
+        ${row('Enter', 'Open the focused day')}
+        ${row('T', 'Jump to today (day view too)')}
+      ${row('W', 'Week view')}
+        ${row('[ ]', 'Previous / next month')}
+        ${row('↑ ↓ or J K', 'Move between tasks')}
+        ${row('Space / X', 'Tick the focused task')}
+        ${row('E', 'Edit the focused task')}
+        ${row('Del', 'Delete the focused task')}
+        ${row('Alt ↑ ↓', 'Reorder the focused task')}
+        ${row('← →', 'Previous / next weekday')}
+        ${row('A', 'Plan a one-off task')}
+        ${row('R', 'Add to this day\u2019s routine')}
+        ${row('N', 'Jump to notes')}
+        ${row('?', 'This help')}
+      </div>
+    </div></div></div>`;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   STATS VIEW — heatmap, streaks, category split, CPTS
+   ════════════════════════════════════════════════════════════════ */
+function renderStats() {
+  cur = { view: 'stats', ds: null };
+  const t0 = todayYMD();
+
+  /* 17-week completion heatmap, Mon–Fri rows */
+  const anchorDs = isWeekday(t0) ? t0 : prevWeekday(t0);
+  const monThis = addDays(anchorDs, -(dowMon1(anchorDs) - 1));
+  let heat = '<div class="heat"><div class="heat-col heat-labels">' +
+    ['M','T','W','T','F'].map(l => `<span class="heat-lab eyebrow">${l}</span>`).join('') + '</div>';
+  for (let wk = 16; wk >= 0; wk--) {
+    const wstart = addDays(monThis, -7 * wk);
+    heat += '<div class="heat-col">';
+    for (let r = 0; r < 5; r++) {
+      const ds = addDays(wstart, r);
+      const { done, total } = statsFor(ds);
+      const st = ds > t0 ? 'future' : (isOffDay(ds) ? 'offday' : statusFor(ds));
+      heat += `<button class="heat-cell hc-${st}${ds === t0 ? ' hc-today' : ''}"
+        ${ds > t0 ? 'disabled' : `data-act="open-day" data-ds="${ds}"`}
+        title="${fmtShort(ds)}${isOffDay(ds) ? ' · day off' : (total ? ' · ' + done + '/' + total : '')}" aria-label="${fmtLong(ds)}"></button>`;
+    }
+    heat += '</div>';
+  }
+  heat += '</div>';
+
+  /* last 30 elapsed weekdays: task completion + per-category split */
+  const win = lastWeekdays(30);
+  let td = 0, tt = 0;
+  win.forEach(ds => { const s = statsFor(ds); td += s.done; tt += s.total; });
+  const counts = new Map();
+  win.forEach(ds => {
+    const d = S.days[ds]; if (!d) return;
+    d.routine.concat(d.extra).forEach(t => { if (t.done) counts.set(t.cat || '', (counts.get(t.cat || '') || 0) + 1); });
+  });
+  const maxC = Math.max(1, ...counts.values());
+  const catRows = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([cid, n]) => {
+    const c = catById(cid);
+    const col = c ? esc(c.color) : 'var(--tx3)';
+    return `<div class="catbar"><span class="cb-dot" style="background:${col}"></span>
+      <span class="cb-lab">${c ? esc(c.label) : 'Uncategorised'}</span>
+      <span class="cb-track"><span class="cb-fill" style="width:${(n / maxC * 100).toFixed(1)}%;background:${col}"></span></span>
+      <span class="cb-n mono">${n}</span></div>`;
+  }).join('') || '<p class="empty">Tick tasks and the split shows up here.</p>';
+
+  const now = new Date();
+  const ms = monthStats(now.getFullYear(), now.getMonth());
+  const cp = cptsPct();
+
+  app.innerHTML = topbarHTML() + `
+  <div class="fade-in">
+  <div class="day-head">
+    <button class="icon-btn" data-act="back-cal" title="Back — Esc" aria-label="Back to calendar">${ic('left')}</button>
+    <h1 class="day-title">Statistics <span class="mono">· 17 weeks</span></h1>
+  </div>
+  <section class="tiles">
+    <div class="stat"><span class="eyebrow">Current streak</span><span class="stat-val">${streak()}<small> day${streak() === 1 ? '' : 's'}</small></span></div>
+    <div class="stat"><span class="eyebrow">Best streak</span><span class="stat-val">${bestStreak()}<small> day${bestStreak() === 1 ? '' : 's'}</small></span></div>
+    <div class="stat"><span class="eyebrow">This month</span><span class="stat-val">${ms.total ? ms.done + '<small>/' + ms.total + ' days</small>' : '<small>—</small>'}</span></div>
+    <div class="stat"><span class="eyebrow">Tasks · 30 days</span><span class="stat-val">${tt ? Math.round(td / tt * 100) + '<small>% of ' + tt + '</small>' : '<small>—</small>'}</span></div>
+  </section>
+  <section class="card">
+    <div class="card-h"><span class="eyebrow">Completed days</span><span class="count">tap a square to open it</span></div>
+    ${heat}
+    <div class="heat-legend">
+      <span><span class="heat-key" style="background:var(--raised);border:1px solid var(--line)"></span>nothing</span>
+      <span><span class="heat-key" style="background:color-mix(in oklab,var(--info) 55%,var(--raised))"></span>in progress</span>
+      <span><span class="heat-key" style="background:color-mix(in oklab,var(--warn) 45%,var(--raised))"></span>incomplete</span>
+      <span><span class="heat-key" style="background:var(--ok)"></span>complete</span>
+      <span><span class="heat-key" style="background:repeating-linear-gradient(-45deg, var(--raised) 0 3px, var(--panel) 3px 5px)"></span>day off</span>
+    </div>
+  </section>
+  <div class="day-grid">
+    <section class="card day-main">
+      <div class="card-h"><span class="eyebrow">Done by category · 30 days</span></div>
+      ${catRows}
+    </section>
+    <section class="card day-side">
+      <div class="card-h"><span class="eyebrow">HTB CPTS</span></div>
+      <span class="stat-val cpts-edit" data-act="cpts-edit" role="button" tabindex="0"
+        title="Click to update — sections or %">${cp}<small>%${S.settings.cptsTotal !== 100 ? ' · ' + S.settings.cptsDone + '/' + S.settings.cptsTotal : ''}</small></span>
+      <div class="bar" style="margin-top:10px"><div class="bar-fill" style="width:${cp}%"></div></div>
+      <p class="note-dim" style="margin-top:12px">Update it as you clear sections — accepts <span class="mono">45/495</span> or a plain percent.</p>
+    </section>
+  </div>
+  </div>`;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   EOD LOG — copy-ready markdown digest of a day
+   ════════════════════════════════════════════════════════════════ */
+function buildEOD(ds) {
+  const d = S.days[ds] || { routine: [], extra: [], notes: '' };
+  const all = d.routine.concat(d.extra);
+  const line = t => '- [' + (t.done ? 'x' : ' ') + '] ' + (t.time ? t.time + ' ' : '') + t.title;
+  const doneL = all.filter(t => t.done).map(line);
+  const openL = all.filter(t => !t.done).map(line);
+  const ahead = [];
+  let p = nextWeekday(ds);
+  for (let i = 0; i < 5; i++, p = nextWeekday(p)) {
+    const r = S.days[p]; if (!r) continue;
+    r.extra.forEach(t => ahead.push('- ' + fmtShort(p) + ': ' + t.title));
+  }
+  const parts = ['# EOD — ' + fmtLong(ds), '', 'Done ' + doneL.length + '/' + all.length,
+                 ...(doneL.length ? doneL : ['- —'])];
+  if (openL.length) parts.push('', 'Open', ...openL);
+  if (ahead.length) parts.push('', 'Planned ahead', ...ahead);
+  if (d.notes.trim()) parts.push('', 'Notes', d.notes.trim());
+  if (S.carry.length) parts.push('', 'Carry-forward', ...S.carry.map(c => '- ' + c.text));
+  return parts.join('\n') + '\n';
+}
+function openEOD(ds) {
+  closeOverlay();
+  overlays.innerHTML = `<div class="ov" role="dialog" aria-label="End of day log">
+    <div class="ov-panel eod-panel">
+      <div class="card-h"><span class="eyebrow">EOD log · ${fmtShort(ds)}</span>
+        <span style="display:flex;gap:8px">
+          <button class="btn btn-sm btn-acc" data-act="eod-copy">Copy</button>
+          <button class="btn btn-sm" data-act="eod-dl">${ic('down')} .md</button>
+        </span></div>
+      <textarea class="notes-ta eod-ta" id="eodTa" spellcheck="false"></textarea>
+      <p class="hint" style="margin:8px 2px 0">Built from the day\u2019s ticks, notes and carry list — tweak it, copy, paste into your 18:30 log.</p>
+    </div></div>`;
+  const ta = $('#eodTa');
+  ta.value = buildEOD(ds);
+  ta.style.height = Math.min(Math.round(window.innerHeight * 0.55), Math.max(220, ta.scrollHeight)) + 'px';
+}
+
+/* ════════════════════════════════════════════════════════════════
+   NOW MARKER + EOD NUDGE  —  clock-aware touches (in-app only)
+   ════════════════════════════════════════════════════════════════ */
+function currentTaskId(now = new Date()) {
+  if (cur.view !== 'day' || cur.ds !== todayYMD()) return null;
+  const d = S.days[cur.ds]; if (!d || d.off) return null;
+  const hm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+  const timed = d.routine.concat(d.extra).filter(t => t.time && !t.done).sort((a, b) => a.time < b.time ? -1 : 1);
+  const past = timed.filter(t => t.time <= hm);
+  return past.length ? past[past.length - 1].id : null;
+}
+function updateNowMarker(now = new Date()) {
+  document.querySelectorAll('.task.t-now').forEach(el => el.classList.remove('t-now'));
+  const id = currentTaskId(now);
+  if (!id) return;
+  const row = document.querySelector(`.task[data-id="${id}"]`);
+  if (row) row.classList.add('t-now');
+}
+function checkEodNudge(now = new Date()) {
+  const t0 = todayYMD();
+  const bar = $('#eodNudge');
+  const kill = () => { if (bar) bar.remove(); };
+  if (!isWeekday(t0) || isOffDay(t0) || dayComplete(t0)) return kill();
+  const [h, m] = (S.settings.eodAt || '18:25').split(':').map(Number);
+  const due = now.getHours() > h || (now.getHours() === h && now.getMinutes() >= m);
+  let dismissed = false;
+  try { dismissed = localStorage.getItem('dailyops.nudge') === t0; } catch (e) {}
+  if (!due || dismissed) return kill();
+  if (bar) return;
+  const el = document.createElement('div');
+  el.id = 'eodNudge';
+  el.className = 'nudgebar fade-in';
+  el.innerHTML = `${ic('clip')} <span>${S.settings.eodAt} — wrap the day and write your EOD log</span>
+    <span class="spacer"></span>
+    <button class="btn btn-sm btn-acc" data-act="nudge-eod">Open EOD log</button>
+    <button class="icon-btn" data-act="nudge-dismiss" title="Dismiss for today" aria-label="Dismiss">✕</button>`;
+  app.parentNode.insertBefore(el, app);
+}
+setInterval(() => { checkEodNudge(); updateNowMarker(); }, 60000);
+
+/* ════════════════════════════════════════════════════════════════
+   WEEK VIEW  —  five days side by side, for planning and retro
+   ════════════════════════════════════════════════════════════════ */
+let viewWeekStart = null;              // Monday of the week being shown
+
+function wkTaskHTML(t, list) {
+  return `<button class="wk-task ${t.done ? 'done' : ''} ${list === 'extra' ? 'wk-extra' : ''}"
+      data-act="toggle-task" data-id="${t.id}" data-list="${list}">
+    <span class="wk-tick">${ic('check')}</span>
+    <span>${t.time ? `<span class="mono">${t.time}</span> ` : ''}${esc(t.title)}</span></button>`;
+}
+function renderWeek(keepScroll = false) {
+  const sy = window.scrollY;
+  cur = { view: 'week', ds: null };
+  const t0 = todayYMD();
+  if (!viewWeekStart) {
+    const a = isWeekday(t0) ? t0 : nextWeekday(t0);
+    viewWeekStart = addDays(a, -(dowMon1(a) - 1));
+  }
+  const days = [0, 1, 2, 3, 4].map(i => addDays(viewWeekStart, i));
+  const LIMIT = 9;
+  const col = ds => {
+    const rec = S.days[ds];
+    const off = rec && rec.off;
+    const { done, total } = statsFor(ds);
+    const head = `<button class="wk-day" data-act="open-day" data-ds="${ds}" title="Open ${fmtShort(ds)}">
+        <span><span class="wk-name">${DAY_NAMES[dowMon1(ds)].slice(0, 3)}</span><br>
+        <span class="wk-num">${Number(ds.slice(8))}</span></span>
+        ${off ? '<span class="off-tag" style="margin-left:auto">off</span>'
+              : rec ? ring(total ? done / total : 0, 'st-' + statusFor(ds), 22, 3) + `<span class="wk-count">${done}/${total}</span>`
+                    : `<span class="wk-count">·</span>`}
+      </button>`;
+    let body = '';
+    if (off) body = '<p class="wk-ghost">Day off — excluded from stats.</p>';
+    else if (!rec) body = ds >= t0
+      ? `<p class="wk-ghost">Opens with ${buildRoutine(ds).length} routine tasks.</p>`
+      : '<p class="wk-ghost">Never opened.</p>';
+    else {
+      const rows = rec.routine.map(t => wkTaskHTML(t, 'routine'))
+        .concat(rec.extra.length ? ['<div class="wk-sep">planned</div>'] : [])
+        .concat(rec.extra.map(t => wkTaskHTML(t, 'extra')));
+      body = rows.slice(0, LIMIT + (rows.length > LIMIT + 1 ? 0 : 1)).join('');
+      const hidden = rows.length - (LIMIT + (rows.length > LIMIT + 1 ? 0 : 1));
+      if (hidden > 0) body += `<button class="wk-task wk-more" data-act="open-day" data-ds="${ds}">+ ${hidden} more…</button>`;
+      if (rec.notes.trim()) body += `<div class="wk-notes">${ic('note')} notes</div>`;
+    }
+    return `<div class="wk-col ${ds === t0 ? 'wk-today' : ''} ${off ? 'wk-off' : ''}" data-ds="${ds}">${head}${body}</div>`;
+  };
+  const label = fmtShort(days[0]).replace(/^\w+,?\s*/, '') + ' — ' + fmtShort(days[4]).replace(/^\w+,?\s*/, '');
+  app.innerHTML = topbarHTML() + `
+  <div class="fade-in">
+  <div class="week-head">
+    <button class="icon-btn" data-act="back-cal" title="Back — Esc" aria-label="Back to calendar">${ic('left')}</button>
+    <h1 class="day-title">Week <span class="mono">· ${label}</span></h1>
+    <span class="spacer"></span>
+    <button class="icon-btn" data-act="week-prev" aria-label="Previous week">${ic('left')}</button>
+    <button class="btn btn-sm" data-act="week-this">This week</button>
+    <button class="icon-btn" data-act="week-next" aria-label="Next week">${ic('right')}</button>
+  </div>
+  <div class="week-grid">${days.map(col).join('')}</div>
+  <p class="hint">Tick tasks straight from here · click a day header to open it · <span class="kbd">W</span> from anywhere</p>
+  </div>`;
+  if (keepScroll) window.scrollTo(0, sy);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   TRANSFER CODES  —  phone ↔ laptop without files
+   ════════════════════════════════════════════════════════════════ */
+const b64uEnc = bytes => {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+const b64uDec = str => Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+
+async function packState() {
+  const bytes = new TextEncoder().encode(JSON.stringify(S));
+  if (typeof CompressionStream === 'function') {
+    try {
+      const cs = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+      const buf = new Uint8Array(await new Response(cs).arrayBuffer());
+      return 'DOPS2.' + b64uEnc(buf);
+    } catch (e) { /* fall through to plain */ }
+  }
+  return 'DOPS0.' + b64uEnc(bytes);
+}
+async function unpackState(code) {
+  const m = String(code).trim().match(/^DOPS([02])\.([A-Za-z0-9_-]+)$/);
+  if (!m) throw new Error('not a transfer code');
+  let bytes = b64uDec(m[2]);
+  if (m[1] === '2') {
+    const ds = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    bytes = new Uint8Array(await new Response(ds).arrayBuffer());
+  }
+  return normalize(JSON.parse(new TextDecoder().decode(bytes)));
+}
+function openTransfer() {
+  closeOverlay();
+  overlays.innerHTML = `<div class="ov" role="dialog" aria-label="Enter transfer code">
+    <div class="ov-panel eod-panel">
+      <div class="card-h"><span class="eyebrow">Enter transfer code</span>
+        <button class="btn btn-sm btn-acc" data-act="xfer-apply">Import</button></div>
+      <textarea class="notes-ta eod-ta" id="xferTa" spellcheck="false"
+        placeholder="Paste the code from your other device — it starts with DOPS"></textarea>
+      <p class="hint" style="margin:8px 2px 0">Importing replaces this browser's data (undoable from the toast). Codes never leave your devices.</p>
+    </div></div>`;
+  $('#xferTa').focus();
+}
+
+/* Command palette targets (from the Ctrl+K box) */
+function runCmd(cmd) {
+  const t0 = todayYMD();
+  const todayOr = f => isWeekday(t0) ? t0 : f(t0);
+  switch (cmd) {
+    case 'today': go('/day/' + todayOr(nextWeekday)); break;
+    case 'cal': doAct('back-cal', document.body); break;
+    case 'stats': go('/stats'); break;
+    case 'week': viewWeekStart = null; go('/week'); break;
+    case 'settings': go('/settings'); break;
+    case 'help': openHelp(); break;
+    case 'export': doAct('export', document.body); break;
+    case 'eod': eodDs = todayOr(prevWeekday); openEOD(eodDs); break;
+    case 'plan': {
+      const ds = todayOr(nextWeekday);
+      go('/day/' + ds);
+      setTimeout(() => { const i = $('#addExtraTitle'); if (i) i.focus(); }, 80);
+      break;
+    }
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   ACTIONS — every [data-act] in the UI lands here
+   ════════════════════════════════════════════════════════════════ */
+function findTask(ds, list, id) {
+  const d = S.days[ds]; if (!d) return null;
+  return d[list].find(t => t.id === id) || null;
+}
+function weekendGuard(ds) {
+  if (isWeekday(ds)) return false;
+  toast('Weekends are off — pick a weekday');
+  return true;
+}
+
+function doAct(act, el) {
+  const row = el.closest ? el.closest('[data-id]') : null;
+  const id = el.dataset.id || (row && row.dataset.id);
+  const list = el.dataset.list || (row && row.dataset.list);
+
+  switch (act) {
+    /* ── navigation ── */
+    case 'nav-cal': case 'back-cal':
+      if (cur.view === 'day' && cur.ds) { const d = fromYMD(cur.ds); viewY = d.getFullYear(); viewM = d.getMonth(); calFocus = cur.ds; }
+      { const wasCal = location.hash === '' || location.hash === '#/';
+        go('/'); if (wasCal) route(); }
+      break;
+    case 'open-day': go('/day/' + el.dataset.ds); break;
+    case 'jump-today': go('/day/' + todayYMD()); break;
+    case 'day-prev': go('/day/' + prevWeekday(cur.ds)); break;
+    case 'day-next': go('/day/' + nextWeekday(cur.ds)); break;
+    case 'open-settings': go('/settings'); break;
+    case 'month-prev': viewM--; if (viewM < 0) { viewM = 11; viewY--; } calFocus = null; renderCalendar(); break;
+    case 'month-next': viewM++; if (viewM > 11) { viewM = 0; viewY++; } calFocus = null; renderCalendar(); break;
+    case 'month-today': { const n = new Date(); viewY = n.getFullYear(); viewM = n.getMonth(); calFocus = null; renderCalendar(); break; }
+    case 'open-search': overlayOpen() ? closeOverlay() : openSearch(); break;
+    case 'open-help': overlayOpen() ? closeOverlay() : openHelp(); break;
+    case 's-open': { const ds = el.dataset.ds; closeOverlay(); go('/day/' + ds); if (cur.ds === ds) renderDay(ds); break; }
+    case 'cpts-edit': cptsEditor(el); break;
+
+    /* ── tasks on a day ── */
+    case 'toggle-task': {
+      const host = el.closest('[data-ds]');             // week columns carry their date
+      const dsx = (host && host.dataset.ds) || cur.ds;
+      const t = findTask(dsx, list, id); if (!t) break;
+      const wasComplete = dayComplete(dsx);
+      t.done = !t.done; persist();
+      if (!wasComplete && dayComplete(dsx)) {           // just finished that day
+        if (cur.view === 'day') celebrate = true;
+        toast('Day complete — ' + streak() + '-day streak', { ms: 3200 });
+      }
+      if (cur.view === 'week') { renderWeek(true); }
+      else { focusTaskId = id; refreshDay(); updateNowMarker(); }
+      break;
+    }
+    case 'edit-task': editingTaskId = id; carryMoveId = null; refreshDay(); break;
+    case 'cancel-edit': editingTaskId = null; refreshDay(); break;
+    case 'save-task': {
+      const box = el.closest('.task-edit'); if (!box) break;
+      const t = findTask(cur.ds, box.dataset.list, box.dataset.id); if (!t) break;
+      const title = $('[data-f=edit-title]', box).value.trim();
+      if (title) t.title = title;
+      t.time = $('[data-f=edit-time]', box).value || null;
+      t.cat = $('[data-f=edit-cat]', box).value || null;
+      editingTaskId = null; persist(); refreshDay(); break;
+    }
+    case 'del-task': {
+      const undo = snapshotUndo();
+      const d = S.days[cur.ds]; if (!d) break;
+      d[list] = d[list].filter(t => t.id !== id);
+      editingTaskId = null; persist(); refreshDay();
+      toast('Task deleted', { undo }); break;
+    }
+    case 'add-routine': {
+      const ti = $('#addRoutineTitle'), tm = $('#addRoutineTime');
+      const title = ti.value.trim(); if (!title) { ti.focus(); break; }
+      S.days[cur.ds].routine.push({ id: uid(), tid: null, title, time: tm.value || null, cat: null, done: false });
+      persist(); refreshDay(); const n = $('#addRoutineTitle'); if (n) n.focus(); break;
+    }
+    case 'add-extra': {
+      const ti = $('#addExtraTitle'), tm = $('#addExtraTime'), dt = $('#addExtraDate');
+      const title = ti.value.trim(); if (!title) { ti.focus(); break; }
+      const target = /^\d{4}-\d{2}-\d{2}$/.test(dt.value) ? dt.value : cur.ds;
+      if (weekendGuard(target)) break;
+      ensureDay(target).extra.push({ id: uid(), title, time: tm.value || null, cat: null, done: false });
+      persist();
+      if (target === cur.ds) { refreshDay(); const n = $('#addExtraTitle'); if (n) n.focus(); }
+      else {
+        ti.value = ''; tm.value = '';
+        toast('Planned for ' + fmtShort(target), { actionLabel: 'View', action: () => go('/day/' + target) });
+      }
+      break;
+    }
+
+    /* ── notes ── */
+    case 'notes-write': notesMode = 'write'; refreshDay(); break;
+    case 'notes-preview': { const ta = $('#notesTa'); if (ta) { S.days[cur.ds].notes = ta.value; persist(); } notesMode = 'preview'; refreshDay(); break; }
+    case 'md-bold': mdWrap('**'); break;
+    case 'md-code': mdWrap('`'); break;
+    case 'md-block': mdWrap('\n```\n', '\n```\n'); break;
+    case 'md-list': mdWrap('- ', ''); break;
+
+    /* ── carry forward ── */
+    case 'carry-add': {
+      const inp = $('#addCarryText'); const text = inp.value.trim();
+      if (!text) { inp.focus(); break; }
+      S.carry.push({ id: uid(), text });
+      persist(); refreshDay(); const n = $('#addCarryText'); if (n) n.focus(); break;
+    }
+    case 'carry-done': {
+      const undo = snapshotUndo();
+      S.carry = S.carry.filter(c => c.id !== id);
+      persist(); refreshDay(); toast('Cleared', { undo }); break;
+    }
+    case 'carry-move': carryMoveId = id; editingTaskId = null; refreshDay();
+      { const di = $('#carryDate'); if (di) di.focus(); } break;
+    case 'carry-cancel': carryMoveId = null; refreshDay(); break;
+    case 'carry-move-go': {
+      const c = S.carry.find(x => x.id === id); if (!c) break;
+      const target = $('#carryDate').value;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(target)) break;
+      if (weekendGuard(target)) break;
+      const undo = snapshotUndo();
+      ensureDay(target).extra.push({ id: uid(), title: c.text, time: null, cat: null, done: false });
+      S.carry = S.carry.filter(x => x.id !== id);
+      carryMoveId = null; persist(); refreshDay();
+      toast('Moved to ' + fmtShort(target), { undo, actionLabel: 'View', action: () => go('/day/' + target) });
+      break;
+    }
+
+    /* ── v2: stats, EOD, pull-in, hide-done, palette ── */
+    case 'open-stats': go('/stats'); break;
+    case 'hide-done': S.settings.hideDone = !S.settings.hideDone; persist(); refreshDay(); break;
+    case 'pull-in': {
+      const from = el.dataset.ds, rec = S.days[from];
+      if (!rec) break;
+      const moving = rec.extra.filter(t => !t.done);
+      if (!moving.length) break;
+      const undo = snapshotUndo();
+      rec.extra = rec.extra.filter(t => t.done);
+      const dest = ensureDay(cur.ds);
+      moving.forEach(t => dest.extra.push({ ...t, id: uid(), time: null })); // old times belonged to that day
+      persist(); refreshDay();
+      toast('Pulled ' + moving.length + ' in from ' + fmtShort(from), { undo });
+      break;
+    }
+    case 'eod': eodDs = cur.ds || todayYMD(); openEOD(eodDs); break;
+    case 'eod-copy': {
+      const ta = $('#eodTa'); if (!ta) break;
+      ta.focus(); ta.select();
+      const ok = () => toast('Copied — paste it into your EOD');
+      if (navigator.clipboard && navigator.clipboard.writeText)
+        navigator.clipboard.writeText(ta.value).then(ok, () => { document.execCommand('copy'); ok(); });
+      else { document.execCommand('copy'); ok(); }
+      break;
+    }
+    case 'eod-dl': {
+      const ta = $('#eodTa'); if (!ta) break;
+      try {
+        const blob = new Blob([ta.value], { type: 'text/markdown' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = 'eod-' + (eodDs || todayYMD()) + '.md';
+        a.click(); URL.revokeObjectURL(a.href);
+      } catch (err) { toast('Download failed — use Copy instead'); }
+      break;
+    }
+    case 's-cmd': closeOverlay(); runCmd(el.dataset.cmd); break;
+    case 'bk-link': linkBackup(); break;
+    case 'bk-now': writeBackup().then(() => toast('Backed up to your file')); break;
+    case 'bk-unlink': unlinkBackup(); break;
+    case 'bk-reconnect': { const b = $('#reconnectBar'); if (b) b.remove(); reconnectBackup(); break; }
+
+    /* ── v3: day off, week, nudge, transfer, nav ── */
+    case 'toggle-off': {
+      const d = ensureDay(cur.ds);
+      d.off = !d.off;
+      persist(); refreshDay();
+      toast(d.off ? 'Marked as day off — streaks and stats skip it' : 'Back on the clock');
+      break;
+    }
+    case 'open-week': viewWeekStart = null; go('/week'); break;
+    case 'week-prev': viewWeekStart = addDays(viewWeekStart, -7); renderWeek(); break;
+    case 'week-next': viewWeekStart = addDays(viewWeekStart, 7); renderWeek(); break;
+    case 'week-this': viewWeekStart = null; renderWeek(); break;
+    case 'nav-today': { const t0 = todayYMD(); go('/day/' + (isWeekday(t0) ? t0 : nextWeekday(t0))); break; }
+    case 'nudge-eod': {
+      try { localStorage.setItem('dailyops.nudge', todayYMD()); } catch (e) {}
+      const b = $('#eodNudge'); if (b) b.remove();
+      eodDs = todayYMD(); openEOD(eodDs); break;
+    }
+    case 'nudge-dismiss': {
+      try { localStorage.setItem('dailyops.nudge', todayYMD()); } catch (e) {}
+      const b = $('#eodNudge'); if (b) b.remove(); break;
+    }
+    case 'xfer-copy': {
+      packState().then(code => {
+        const done = () => toast('Transfer code copied — paste it on the other device (' + code.length + ' chars)');
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(done, () => done());
+        else done();
+      });
+      break;
+    }
+    case 'xfer-open': openTransfer(); break;
+    case 'xfer-apply': {
+      const ta = $('#xferTa'); if (!ta) break;
+      unpackState(ta.value).then(restored => {
+        const undo = snapshotUndo();
+        S = restored; persist(); applyAccent(); closeOverlay(); route();
+        toast('Imported ' + Object.keys(S.days).length + ' day(s) from the code', { undo, ms: 4000 });
+      }).catch(() => toast('That code wasn\u2019t recognised — copy it again in full'));
+      break;
+    }
+
+    /* ── settings: appearance ── */
+    case 'acc-swatch':
+      S.settings.accent = el.dataset.c; applyAccent(); persist(); renderSettings(); break;
+
+    /* ── settings: routine templates ── */
+    case 'tpl-add': {
+      const maxo = S.templates.reduce((m, t) => Math.max(m, t.order ?? 0), -1);
+      S.templates.push({ id: uid(), time: '12:00', title: '', days: [1, 2, 3, 4, 5], cat: null, order: maxo + 1 });
+      persist(); renderSettings();
+      const rows = $$('.tpl-row'); const last = rows[rows.length - 1];
+      if (last) { const t = $('[data-f=tpl-title]', last); t.placeholder = 'Name this task…'; t.focus(); }
+      break;
+    }
+    case 'tpl-del': {
+      const undo = snapshotUndo();
+      S.templates = S.templates.filter(t => t.id !== id);
+      persist(); applyTemplatesForward(); renderSettings();
+      toast('Routine task removed', { undo }); break;
+    }
+    case 'tpl-day': {
+      const t = tplById(id); if (!t) break;
+      const dn = Number(el.dataset.d);
+      t.days = t.days.includes(dn) ? t.days.filter(x => x !== dn) : [...t.days, dn].sort();
+      persist(); applyTemplatesForward(); renderSettings(); break;
+    }
+
+    /* ── settings: categories ── */
+    case 'cat-add':
+      S.categories.push({ id: uid(), label: 'New category', color: '#8b7cff' });
+      persist(); renderSettings();
+      { const rows = $$('.cat-row'); const last = rows[rows.length - 1];
+        if (last) { const i = $('[data-f=cat-label]', last); i.focus(); i.select(); } }
+      break;
+    case 'cat-del': {
+      const undo = snapshotUndo();
+      S.categories = S.categories.filter(c => c.id !== id);
+      S.templates.forEach(t => { if (t.cat === id) t.cat = null; });
+      for (const k of Object.keys(S.days)) {
+        S.days[k].routine.forEach(t => { if (t.cat === id) t.cat = null; });
+        S.days[k].extra.forEach(t => { if (t.cat === id) t.cat = null; });
+      }
+      persist(); renderSettings(); toast('Category deleted', { undo }); break;
+    }
+
+    /* ── settings: links ── */
+    case 'link-add':
+      S.settings.links.push({ id: uid(), label: 'New link', url: '' });
+      persist(); renderSettings();
+      { const rows = $$('.link-row'); const last = rows[rows.length - 1];
+        if (last) { const i = $('[data-f=link-label]', last); i.focus(); i.select(); } }
+      break;
+    case 'link-del': {
+      const undo = snapshotUndo();
+      S.settings.links = S.settings.links.filter(l => l.id !== id);
+      persist(); renderSettings(); toast('Link removed', { undo }); break;
+    }
+
+    /* ── settings: data ── */
+    case 'export': {
+      const blob = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'dailyops-backup-' + todayYMD() + '.json';
+      a.click(); URL.revokeObjectURL(a.href);
+      S.settings.lastExport = new Date().toISOString(); persist();
+      if (cur.view === 'set') renderSettings();
+      toast('Backup downloaded'); break;
+    }
+    case 'import': $('#fileImport').click(); break;
+    case 'reset': {
+      const undo = snapshotUndo();
+      try { localStorage.setItem('dailyops.backup', JSON.stringify(S)); } catch (e) {}
+      S = seed(); persist(); applyAccent(); route();
+      toast('Everything reset', { undo }); break;
+    }
+  }
+}
+
+/* Markdown toolbar helper — wraps the current selection */
+function mdWrap(pre, post = pre) {
+  const ta = $('#notesTa'); if (!ta) return;
+  const s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
+  const sel = v.slice(s, e);
+  ta.value = v.slice(0, s) + pre + sel + post + v.slice(e);
+  ta.focus();
+  ta.setSelectionRange(s + pre.length, s + pre.length + sel.length);
+  ta.dispatchEvent(new Event('input'));
+}
+
+/* ════════════════════════════════════════════════════════════════
+   DELEGATED EVENTS
+   ════════════════════════════════════════════════════════════════ */
+document.addEventListener('click', e => {
+  const ab = e.target.closest('[data-act]');
+  if (ab) { doAct(ab.dataset.act, ab); return; }
+  const row = e.target.closest('.task');            // whole row is a tap target
+  if (row && !e.target.closest('[data-grip]')) { doAct('toggle-task', row); return; }
+  if (e.target.classList.contains('ov')) closeOverlay();
+});
+
+/* Live edits on Settings fields — mutate state without re-rendering,
+   so typing never loses focus. */
+function handleField(el) {
+  const f = el.dataset.f;
+  const row = el.closest('[data-id]');
+  const id = row && row.dataset.id;
+  if (f === 'acc-custom') { S.settings.accent = el.value; applyAccent(); saveSoon(); return; }
+  if (f === 'eod-at') {
+    if (/^\d{2}:\d{2}$/.test(el.value)) { S.settings.eodAt = el.value; saveSoon(); checkEodNudge(); }
+    return;
+  }
+  if (f === 'tpl-time' || f === 'tpl-title' || f === 'tpl-cat') {
+    const t = tplById(id); if (!t) return;
+    if (f === 'tpl-time') t.time = el.value || null;
+    if (f === 'tpl-title') t.title = el.value;
+    if (f === 'tpl-cat') t.cat = el.value || null;
+    saveSoon(); applyTemplatesForwardSoon(); return;
+  }
+  if (f === 'cat-label' || f === 'cat-color') {
+    const c = catById(id); if (!c) return;
+    if (f === 'cat-label') c.label = el.value;
+    if (f === 'cat-color') c.color = el.value;
+    saveSoon(); return;
+  }
+  if (f === 'link-label' || f === 'link-url') {
+    const l = linkById(id); if (!l) return;
+    if (f === 'link-label') l.label = el.value;
+    if (f === 'link-url') l.url = el.value;
+    saveSoon(); return;
+  }
+}
+document.addEventListener('input', e => { if (e.target.dataset && e.target.dataset.f) handleField(e.target); });
+document.addEventListener('change', e => {
+  const el = e.target;
+  if (!el.dataset || !el.dataset.f) return;
+  if (el.dataset.f === 'link-url' && el.value && !/^[a-z]+:\/\//i.test(el.value)) {
+    el.value = 'https://' + el.value;               // forgive missing scheme
+  }
+  if (el.dataset.f === 'acc-custom') { handleField(el); renderSettings(); return; }
+  handleField(el);
+});
+
+/* Import file chosen */
+$('#fileImport').addEventListener('change', e => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    let obj;
+    try { obj = JSON.parse(rd.result); } catch { toast('That file isn\u2019t valid JSON'); return; }
+    if (!obj || typeof obj !== 'object' || !obj.days || !obj.version) {
+      toast('That doesn\u2019t look like a Daily Ops backup'); return;
+    }
+    const undo = snapshotUndo();
+    try { localStorage.setItem('dailyops.backup', JSON.stringify(S)); } catch (err) {}
+    S = normalize(obj); persist(); applyAccent(); route();
+    toast('Backup imported', { undo });
+  };
+  rd.readAsText(file);
+});
+
+/* ════════════════════════════════════════════════════════════════
+   KEYBOARD
+   ════════════════════════════════════════════════════════════════ */
+function focusedTaskRow() {
+  const a = document.activeElement;
+  return a && a.classList && a.classList.contains('task') ? a : null;
+}
+function moveTaskFocus(dir) {
+  const rows = $$('.task');
+  if (!rows.length) return;
+  const i = rows.indexOf(focusedTaskRow());
+  const next = rows[clamp(i + dir, 0, rows.length - 1)] || rows[0];
+  next.focus();
+}
+function nudgeTask(dir) {
+  const r = focusedTaskRow(); if (!r) return;
+  const d = S.days[cur.ds]; if (!d) return;
+  const list = d[r.dataset.list];
+  const i = list.findIndex(t => t.id === r.dataset.id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  persist(); focusTaskId = r.dataset.id; refreshDay();
+}
+
+document.addEventListener('keydown', e => {
+  const tag = (document.activeElement && document.activeElement.tagName) || '';
+  const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+  /* always-available */
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault(); overlayOpen() ? closeOverlay() : openSearch(); return;
+  }
+  if (e.key === 'Escape') {
+    if (overlayOpen()) { closeOverlay(); return; }
+    if (typing) { document.activeElement.blur(); return; }
+    if (editingTaskId) { editingTaskId = null; refreshDay(); return; }
+    if (carryMoveId) { carryMoveId = null; refreshDay(); return; }
+    if (cur.view !== 'cal') doAct('back-cal', document.body);
+    return;
+  }
+  if (typing || overlayOpen()) return;
+
+  /* activate the CPTS inline editor from keyboard */
+  if ((e.key === 'Enter' || e.key === ' ') && document.activeElement && document.activeElement.dataset
+      && document.activeElement.dataset.act === 'cpts-edit') {
+    e.preventDefault(); cptsEditor(); return;
+  }
+  if (cur.view === 'cal' && (e.key === 'w' || e.key === 'W')) {
+    e.preventDefault(); doAct('open-week', document.body); return;
+  }
+  if (e.key === '?') { openHelp(); return; }
+  if (e.key === '/') { e.preventDefault(); openSearch(); return; }
+
+  if (cur.view === 'cal') {
+    const moveTo = ds => {
+      calFocus = ds;
+      const d = fromYMD(ds);
+      if (d.getMonth() !== viewM || d.getFullYear() !== viewY) { viewY = d.getFullYear(); viewM = d.getMonth(); }
+      renderCalendar();
+      const c = $(`.cell[data-ds="${ds}"]`); if (c) c.focus();
+    };
+    switch (e.key) {
+      case 'ArrowLeft':  e.preventDefault(); moveTo(prevWeekday(calFocus)); break;
+      case 'ArrowRight': e.preventDefault(); moveTo(nextWeekday(calFocus)); break;
+      case 'ArrowUp':    e.preventDefault(); moveTo(addDays(calFocus, -7)); break;
+      case 'ArrowDown':  e.preventDefault(); moveTo(addDays(calFocus, 7)); break;
+      case 'Enter': if (document.activeElement === document.body) go('/day/' + calFocus); break;
+      case 't': case 'T': { const t0 = todayYMD(); moveTo(isWeekday(t0) ? t0 : nextWeekday(t0)); break; }
+      case '[': doAct('month-prev', document.body); break;
+      case ']': doAct('month-next', document.body); break;
+    }
+    return;
+  }
+
+  if (cur.view === 'day') {
+    switch (e.key) {
+      case 'ArrowDown': case 'j': e.preventDefault();
+        if (e.altKey) nudgeTask(1); else moveTaskFocus(1); break;
+      case 'ArrowUp': case 'k': e.preventDefault();
+        if (e.altKey) nudgeTask(-1); else moveTaskFocus(-1); break;
+      case ' ': case 'x': case 'X': case 'Enter': {
+        const r = focusedTaskRow();
+        if (r) { e.preventDefault(); doAct('toggle-task', r); }
+        break;
+      }
+      case 'e': case 'E': { const r = focusedTaskRow(); if (r) { editingTaskId = r.dataset.id; refreshDay(); } break; }
+      case 'Delete': { const r = focusedTaskRow(); if (r) doAct('del-task', r); break; }
+      case 'ArrowLeft':  doAct('day-prev', document.body); break;
+      case 'ArrowRight': doAct('day-next', document.body); break;
+      case 'a': case 'A': e.preventDefault(); { const i = $('#addExtraTitle'); if (i) i.focus(); } break;
+      case 'r': case 'R': e.preventDefault(); { const i = $('#addRoutineTitle'); if (i) i.focus(); } break;
+      case 't': case 'T': if (cur.ds !== todayYMD()) doAct('jump-today', document.body); break;
+      case 'w': case 'W': doAct('open-week', document.body); break;
+      case 'n': case 'N': e.preventDefault();
+        if (notesMode !== 'write') { notesMode = 'write'; refreshDay(); }
+        { const ta = $('#notesTa'); if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } }
+        break;
+    }
+  }
+});
+
+/* ════════════════════════════════════════════════════════════════
+   ROUTER & INIT
+   ════════════════════════════════════════════════════════════════ */
+function route() {
+  closeOverlay();
+  editingTaskId = null; carryMoveId = null;
+  const h = location.hash.replace(/^#/, '');
+  if (h.startsWith('/day/')) {
+    const ds = h.slice(5);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(ds) && isWeekday(ds)) { renderDay(ds); return; }
+  }
+  if (h === '/settings') { renderSettings(); return; }
+  if (h === '/stats') { renderStats(); return; }
+  if (h === '/week') { renderWeek(); return; }
+  renderCalendar();
+}
+window.addEventListener('hashchange', route);
+
+applyAccent();
+if (!storageOK && !AS) $('#banner').classList.add('show');
+$('#tabbar').innerHTML = [
+  ['nav-cal', 'cal', 'cal', 'Month'],
+  ['open-week', 'week', 'week', 'Week'],
+  ['nav-today', 'day', 'target', 'Today'],
+  ['open-stats', 'stats', 'chart', 'Stats'],
+  ['open-settings', 'set', 'gear', 'Settings'],
+].map(([act, view, icon, label]) =>
+  `<button class="tab-i" data-act="${act}" data-view="${view}" aria-label="${label}">${ic(icon)}<span>${label}</span></button>`).join('');
+(async () => {
+  /* Inside an artifact, localStorage is blocked — pull saved state from
+     artifact storage before the first paint so nothing looks lost. */
+  if (AS) {
+    let hadLocal = false;
+    try { hadLocal = !!localStorage.getItem(DB_KEY); } catch (e) {}
+    if (!hadLocal) {
+      try {
+        const r = await AS.get(DB_KEY);
+        if (r && r.value) { S = normalize(JSON.parse(r.value)); applyAccent(); }
+      } catch (e) { /* first run — nothing saved yet */ }
+    }
+  }
+  route();
+})();
+initBackup();   // reconnect a previously linked backup file, restore if this browser is empty
+checkEodNudge();
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});   // PWA offline cache; silently absent on file://
+}
+
+/* Test / console handle — lets tooling drive the backup engine and read its
+   live state. No data beyond what the app already holds; safe to keep. */
+window.__ops = {
+  get S() { return S; }, set S(v) { S = v; },
+  get bkState() { return bkState; }, set bkState(v) { bkState = v; },
+  get bkHandle() { return bkHandle; }, set bkHandle(v) { bkHandle = v; },
+  FS_OK, idb, linkBackup, unlinkBackup, reconnectBackup, writeBackup, maybeRestore,
+  persist, normalize, snapshotUndo, packState, unpackState, checkEodNudge, updateNowMarker,
+};
+</script>
+</body>
+</html>
