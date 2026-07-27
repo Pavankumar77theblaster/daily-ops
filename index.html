@@ -622,6 +622,58 @@ input:focus,textarea:focus,select:focus{border-color:var(--accent-line)}
 .tab-i{font-family:var(--sans);font-weight:500}
 @media (max-width:720px){ .topbar{margin:0 -2px 16px;padding:10px 2px} }
 
+/* ── 14e. v5 — iPhone fit, simpler settings, per-task colours ─── */
+@media (max-width:720px){
+  html,body{overflow-x:clip}
+  input,select,textarea{font-size:16px}          /* stops iOS focus-zoom */
+  .app-max{padding-top:calc(4px + env(safe-area-inset-top))}
+  .topbar{top:0;padding-top:calc(10px + env(safe-area-inset-top))}
+  .day-head{flex-wrap:wrap;row-gap:8px}
+  .day-title{font-size:19px}
+  .add-row{flex-wrap:wrap}
+  .add-row input[type=text]{flex:1 1 100%;min-width:0}
+  .add-row input[type=time],.add-row input[type=date]{flex:1 1 auto;min-width:0}
+  .add-row .btn{flex:1 1 auto;justify-content:center}
+  .stats{gap:8px}
+  .stat{padding:10px}
+  .stat-val{font-size:19px}
+  .icon-btn{min-width:40px;min-height:40px}
+  .cell{padding:6px 4px}
+  .cell-frac{font-size:10px}
+  .cal-grid{gap:5px}
+  .week-head{flex-wrap:wrap;row-gap:8px}
+  .ov-panel{width:94vw;max-height:82dvh;overflow:auto}
+  .t-actions .icon-btn{opacity:1}                /* touch: controls always visible */
+  .heat-cell{width:13px;height:13px}
+  .heat-lab{height:13px}
+}
+
+/* simpler settings: routine rows collapse to one line, expand to edit */
+.tpl-sum{display:flex;align-items:center;gap:6px}
+.tpl-openbtn{display:flex;align-items:center;gap:10px;flex:1;min-width:0;text-align:left;
+  background:none;border:1px solid transparent;border-radius:var(--r-sm);
+  padding:9px 10px;cursor:pointer;color:var(--tx);font-family:var(--sans)}
+.tpl-openbtn:hover{background:var(--raised);border-color:var(--line)}
+.tpl-openbtn > svg{width:14px;height:14px;color:var(--tx3);flex:none;margin-left:auto}
+.t-dot{width:9px;height:9px;border-radius:50%;flex:none}
+.tpl-t{color:var(--tx2);font-size:12.5px;flex:none;width:50px}
+.tpl-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13.5px}
+.tpl-days{color:var(--tx3);font-size:11px;letter-spacing:.18em;flex:none}
+.tpl-editor{align-items:flex-start;background:var(--ink);border:1px solid var(--line);
+  border-radius:var(--r-sm);padding:10px;display:flex;gap:6px}
+.tpl-fields{flex:1;display:flex;flex-direction:column;gap:9px;min-width:0}
+.tpl-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tpl-line input[type=text]{flex:1;min-width:140px}
+
+/* own-colour control (tasks & routine) */
+.clr-wrap{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--tx2);
+  cursor:pointer;user-select:none;white-space:nowrap}
+.clr-wrap input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;margin:0}
+.clr-wrap input[type=color]{width:30px;height:24px;padding:0;border:1px solid var(--line2);
+  border-radius:6px;background:none;cursor:pointer}
+.clr-wrap input[type=color]::-webkit-color-swatch-wrapper{padding:2px}
+.clr-wrap input[type=color]::-webkit-color-swatch{border:none;border-radius:4px}
+
 /* ── 15. Misc ─────────────────────────────────────────────────── */
 .banner{
   background:color-mix(in oklab,var(--warn) 12%,transparent);
@@ -758,7 +810,8 @@ function normalize(raw) {
   if (!Array.isArray(s.settings.links)) s.settings.links = base.settings.links;
   if (!Array.isArray(s.categories)) s.categories = base.categories;
   if (!Array.isArray(s.templates)) s.templates = base.templates;
-  s.templates.forEach((t, i) => { if (!Array.isArray(t.days)) t.days = [1,2,3,4,5]; if (t.order == null) t.order = i; });
+  const okColor = c => (typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c)) ? c : null;
+  s.templates.forEach((t, i) => { if (!Array.isArray(t.days)) t.days = [1,2,3,4,5]; if (t.order == null) t.order = i; t.color = okColor(t.color); });
   if (!s.days || typeof s.days !== 'object') s.days = {};
   for (const k of Object.keys(s.days)) {
     const d = s.days[k];
@@ -766,6 +819,8 @@ function normalize(raw) {
     if (!Array.isArray(d.extra)) d.extra = [];
     if (typeof d.notes !== 'string') d.notes = '';
     d.off = !!d.off;
+    d.routine.forEach(t => { t.color = okColor(t.color); });
+    d.extra.forEach(t => { t.color = okColor(t.color); });
   }
   if (!Array.isArray(s.carry)) s.carry = [];
   return s;
@@ -968,7 +1023,7 @@ function buildRoutine(ds) {
   return S.templates
     .filter(t => t.days.includes(w))
     .slice().sort(byTimeThenOrder)
-    .map(t => ({ id: uid(), tid: t.id, title: t.title, time: t.time, cat: t.cat, done: false }));
+    .map(t => ({ id: uid(), tid: t.id, title: t.title, time: t.time, cat: t.cat, color: t.color || null, done: false }));
 }
 
 /* Create a day record on demand — nothing is ever pre-created. */
@@ -1207,6 +1262,7 @@ let focusTaskId = null;                // restore focus after re-render
 let carryMoveId = null;                // carry item showing its date picker
 let celebrate = false;                 // pulse the status pill when a day completes
 let eodDs = null;                      // day the EOD overlay was built from
+let tplOpenId = null;                  // routine template currently expanded in Settings
 
 const app = $('#app');
 const go = h => { location.hash = h; };
@@ -1232,6 +1288,12 @@ function topbarHTML() {
 const catDot = id => {
   const c = catById(id);
   return c ? `<span class="t-cat" style="background:${esc(c.color)}" title="${esc(c.label)}"></span>` : '';
+};
+/* Effective colour for a task: its own override first, else its category */
+const taskColor = t => t.color || (catById(t.cat) || {}).color || null;
+const taskDot = t => {
+  const c = taskColor(t);
+  return c ? `<span class="t-cat" style="background:${esc(c)}" title="${esc(t.color ? 'Own colour' : (catById(t.cat) || {}).label || '')}"></span>` : '';
 };
 const catSelect = (f, sel) =>
   `<select data-f="${f}"><option value="">No category</option>` +
@@ -1387,6 +1449,11 @@ function taskRowHTML(t, list) {
       <input type="time" data-f="edit-time" value="${esc(t.time || '')}" aria-label="Time">
       <input type="text" data-f="edit-title" value="${esc(t.title)}" aria-label="Task name">
       ${catSelect('edit-cat', t.cat)}
+      <label class="clr-wrap" title="Give this task its own colour instead of the category's">
+        <input type="checkbox" data-f="edit-clr-on" ${t.color ? 'checked' : ''}>
+        <span>Own colour</span>
+        <input type="color" data-f="edit-clr" value="${esc(t.color || (catById(t.cat) || {}).color || S.settings.accent)}">
+      </label>
       <button class="btn btn-sm btn-acc" data-act="save-task">Save</button>
       <button class="btn btn-sm" data-act="cancel-edit">Cancel</button>
       <button class="icon-btn btn-danger" data-act="del-task" data-id="${t.id}" data-list="${list}" aria-label="Delete task">${ic('trash')}</button>
@@ -1398,7 +1465,7 @@ function taskRowHTML(t, list) {
     <button class="cb" data-act="toggle-task" tabindex="-1" aria-hidden="true">${ic('check')}</button>
     <span class="t-time">${esc(t.time || '')}</span>
     <span class="t-title">${esc(t.title)}</span>
-    ${catDot(t.cat)}
+    ${taskDot(t)}
     <span class="t-actions">
       <button class="icon-btn" data-act="edit-task" aria-label="Edit">${ic('pencil')}</button>
       <button class="icon-btn btn-danger" data-act="del-task" data-id="${t.id}" data-list="${list}" aria-label="Delete">${ic('trash')}</button>
@@ -1608,16 +1675,46 @@ function reorderList(ds, list, ids) {
 const SWATCHES = ['#8b7cff', '#4da3ff', '#2dd4bf', '#3dd68c', '#f5a83c', '#f472b6', '#f4707a', '#e2e8f0'];
 
 function tplRowHTML(t) {
+  /* Collapsed: one calm line. Expanded (tap it): the full editor. */
+  if (tplOpenId !== t.id) {
+    const dayStr = [1, 2, 3, 4, 5].map(dn => t.days.includes(dn) ? DAY_LETTERS[dn] : '·').join('');
+    const c = taskColor(t);
+    return `<div class="tpl-row tpl-sum" data-id="${t.id}">
+      <span class="grip" data-grip title="Drag to reorder">${ic('grip')}</span>
+      <button class="tpl-openbtn" data-act="tpl-open" data-id="${t.id}" aria-label="Edit ${esc(t.title || 'task')}">
+        <span class="t-dot" style="background:${c ? esc(c) : 'var(--line2)'}"></span>
+        <span class="tpl-t mono">${esc(t.time || '—')}</span>
+        <span class="tpl-name">${esc(t.title || 'Untitled')}</span>
+        <span class="tpl-days mono">${dayStr}</span>
+        ${ic('pencil')}
+      </button>
+    </div>`;
+  }
   const chips = [1, 2, 3, 4, 5].map(dn =>
     `<button class="dchip ${t.days.includes(dn) ? 'dchip-on' : ''}" data-act="tpl-day"
        data-id="${t.id}" data-d="${dn}" title="${DAY_NAMES[dn]}" aria-pressed="${t.days.includes(dn)}">${DAY_LETTERS[dn]}</button>`).join('');
-  return `<div class="tpl-row" data-id="${t.id}">
+  return `<div class="tpl-row tpl-editor" data-id="${t.id}">
     <span class="grip" data-grip title="Drag to reorder">${ic('grip')}</span>
-    <input type="time" data-f="tpl-time" value="${esc(t.time || '')}" aria-label="Time">
-    <input type="text" data-f="tpl-title" value="${esc(t.title)}" aria-label="Task name">
-    <span class="daychips">${chips}</span>
-    ${catSelect('tpl-cat', t.cat)}
-    <button class="icon-btn btn-danger" data-act="tpl-del" data-id="${t.id}" aria-label="Delete routine task">${ic('trash')}</button>
+    <div class="tpl-fields">
+      <div class="tpl-line">
+        <input type="time" data-f="tpl-time" value="${esc(t.time || '')}" aria-label="Time">
+        <input type="text" data-f="tpl-title" value="${esc(t.title)}" placeholder="Name this task…" aria-label="Task name">
+      </div>
+      <div class="tpl-line">
+        <span class="daychips">${chips}</span>
+        ${catSelect('tpl-cat', t.cat)}
+      </div>
+      <div class="tpl-line">
+        <label class="clr-wrap" title="Give this task its own colour instead of the category's">
+          <input type="checkbox" data-f="tpl-clr-on" ${t.color ? 'checked' : ''}>
+          <span>Own colour</span>
+          <input type="color" data-f="tpl-clr" value="${esc(t.color || (catById(t.cat) || {}).color || S.settings.accent)}">
+        </label>
+        <span class="spacer"></span>
+        <button class="icon-btn btn-danger" data-act="tpl-del" data-id="${t.id}" aria-label="Delete routine task">${ic('trash')}</button>
+        <button class="btn btn-sm btn-acc" data-act="tpl-close">Done</button>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -1672,12 +1769,13 @@ function renderSettings() {
           style="background:${c}" data-act="acc-swatch" data-c="${c}" aria-label="Accent ${c}"></button>`).join('')}
       <input type="color" data-f="acc-custom" value="${esc(S.settings.accent)}" title="Custom accent">
     </div>
-    <div class="add-row" style="margin-top:12px;align-items:center">
-      <span class="eyebrow" style="flex:none">EOD nudge</span>
-      <input type="time" data-f="eod-at" value="${esc(S.settings.eodAt)}" aria-label="EOD reminder time" style="max-width:130px">
-      <span class="note-dim" style="margin:0">In-app banner while a tab is open — no notifications, no server.</span>
-    </div>
+
     <p class="note-dim">One accent, used everywhere. Status colours stay fixed so meaning never shifts: <span style="color:var(--ok)">green = done</span>, <span style="color:var(--info)">blue = in progress</span>, <span style="color:var(--warn)">amber = overdue</span>.</p>
+    <div class="add-row" style="margin-top:14px;align-items:center">
+      <span class="eyebrow" style="flex:none">Reminder</span>
+      <input type="time" data-f="eod-at" value="${esc(S.settings.eodAt)}" aria-label="EOD reminder time" style="max-width:140px">
+      <span class="note-dim" style="margin:0">EOD nudge — in-app banner while a tab is open.</span>
+    </div>
   </section>
 
   <section class="card">
@@ -2011,9 +2109,11 @@ setInterval(() => { checkEodNudge(); updateNowMarker(); }, 60000);
 let viewWeekStart = null;              // Monday of the week being shown
 
 function wkTaskHTML(t, list) {
+  const c = taskColor(t);
+  const tickStyle = c ? `border-color:${esc(c)};${t.done ? `background:${esc(c)};` : ''}` : '';
   return `<button class="wk-task ${t.done ? 'done' : ''} ${list === 'extra' ? 'wk-extra' : ''}"
       data-act="toggle-task" data-id="${t.id}" data-list="${list}">
-    <span class="wk-tick">${ic('check')}</span>
+    <span class="wk-tick" style="${tickStyle}">${ic('check')}</span>
     <span>${t.time ? `<span class="mono">${t.time}</span> ` : ''}${esc(t.title)}</span></button>`;
 }
 function renderWeek(keepScroll = false) {
@@ -2199,6 +2299,7 @@ function doAct(act, el) {
       if (title) t.title = title;
       t.time = $('[data-f=edit-time]', box).value || null;
       t.cat = $('[data-f=edit-cat]', box).value || null;
+      t.color = $('[data-f=edit-clr-on]', box).checked ? $('[data-f=edit-clr]', box).value : null;
       editingTaskId = null; persist(); refreshDay(); break;
     }
     case 'del-task': {
@@ -2353,16 +2454,19 @@ function doAct(act, el) {
       S.settings.accent = el.dataset.c; applyAccent(); persist(); renderSettings(); break;
 
     /* ── settings: routine templates ── */
+    case 'tpl-open': tplOpenId = id; renderSettings(); break;
+    case 'tpl-close': tplOpenId = null; renderSettings(); break;
     case 'tpl-add': {
       const maxo = S.templates.reduce((m, t) => Math.max(m, t.order ?? 0), -1);
-      S.templates.push({ id: uid(), time: '12:00', title: '', days: [1, 2, 3, 4, 5], cat: null, order: maxo + 1 });
+      const nt = { id: uid(), time: '12:00', title: '', days: [1, 2, 3, 4, 5], cat: null, color: null, order: maxo + 1 };
+      S.templates.push(nt); tplOpenId = nt.id;
       persist(); renderSettings();
-      const rows = $$('.tpl-row'); const last = rows[rows.length - 1];
-      if (last) { const t = $('[data-f=tpl-title]', last); t.placeholder = 'Name this task…'; t.focus(); }
+      const ti = $('[data-f=tpl-title]'); if (ti) ti.focus();
       break;
     }
     case 'tpl-del': {
       const undo = snapshotUndo();
+      tplOpenId = null;
       S.templates = S.templates.filter(t => t.id !== id);
       persist(); applyTemplatesForward(); renderSettings();
       toast('Routine task removed', { undo }); break;
@@ -2458,6 +2562,12 @@ function handleField(el) {
   if (f === 'eod-at') {
     if (/^\d{2}:\d{2}$/.test(el.value)) { S.settings.eodAt = el.value; saveSoon(); checkEodNudge(); }
     return;
+  }
+  if (f === 'tpl-clr-on' || f === 'tpl-clr') {
+    const t = tplById(id); if (!t) return;
+    const row = el.closest('.tpl-row');
+    t.color = $('[data-f=tpl-clr-on]', row).checked ? $('[data-f=tpl-clr]', row).value : null;
+    saveSoon(); applyTemplatesForwardSoon(); return;
   }
   if (f === 'tpl-time' || f === 'tpl-title' || f === 'tpl-cat') {
     const t = tplById(id); if (!t) return;
