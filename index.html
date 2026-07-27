@@ -699,6 +699,74 @@ input:focus,textarea:focus,select:focus{border-color:var(--accent-line)}
 .acct-email{font-family:var(--mono);font-size:12.5px;color:var(--tx);flex:1;min-width:0;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
+/* ── 14g. v7 — professional refinement pass ───────────────────── */
+:root{
+  --sh:0 1px 2px rgba(0,0,0,.28), 0 8px 24px -14px rgba(0,0,0,.55);
+  --sh-lg:0 2px 6px rgba(0,0,0,.32), 0 20px 48px -20px rgba(0,0,0,.7);
+}
+/* one signature: a fine luminous hairline at the very top edge, like a
+   powered-on instrument. Quiet, present, unmistakably "on". */
+.app-max::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;z-index:60;pointer-events:none;
+  background:linear-gradient(90deg, transparent, color-mix(in oklab,var(--accent) 70%,transparent) 22%, color-mix(in oklab,var(--accent) 70%,transparent) 78%, transparent);
+  opacity:.55}
+
+/* brand: the diamond gets a subtle inner cut, matching the app icon */
+.brand-gem{position:relative;background:linear-gradient(145deg, color-mix(in oklab,var(--accent) 116%,#fff 8%), var(--accent))}
+.brand-gem::after{content:'';position:absolute;inset:4px;border-radius:1px;background:var(--ink);transform:none}
+.brand small{opacity:.85}
+
+/* cards: crisper elevation, calmer borders, a hair more breathing room */
+.card{box-shadow:var(--sh);border-radius:14px}
+.card + .card{margin-top:16px}
+.stat{border-radius:12px;box-shadow:var(--sh)}
+
+/* buttons: quieter default, confident accent, real press feedback */
+.btn{border-radius:9px;font-weight:550;letter-spacing:.005em}
+.btn-acc{box-shadow:0 1px 0 rgba(255,255,255,.14) inset, 0 6px 16px -10px color-mix(in oklab,var(--accent) 70%,transparent)}
+.btn-acc:hover{box-shadow:0 1px 0 rgba(255,255,255,.18) inset, 0 8px 20px -10px color-mix(in oklab,var(--accent) 80%,transparent)}
+.icon-btn{border-radius:9px}
+.icon-btn:hover{background:var(--raised)}
+
+/* inputs: unified, tactile, with a clear focused state */
+input,select,textarea{border-radius:9px;transition:border-color .12s ease, box-shadow .12s ease, background .12s ease}
+input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px color-mix(in oklab,var(--accent) 16%,transparent)}
+
+/* toasts: elevated, with an icon slot; the sync variant reads as calm-positive */
+.toast{align-items:center;gap:10px;box-shadow:var(--sh-lg);border-radius:12px;padding:11px 15px}
+.toast-ic{display:flex;flex:none}.toast-ic svg{width:16px;height:16px}
+.toast-sync{border-color:var(--accent-line);background:color-mix(in oklab,var(--accent) 14%,var(--panel))}
+.toast-sync .toast-ic{color:var(--accent)}
+
+/* pills & chips: consistent radius language */
+.pill,.chip,.kbd,.count,.off-tag,.cloud-pill{border-radius:99px}
+.pill{font-weight:600;letter-spacing:.01em}
+
+/* calendar: today ring stands out; hover lifts with a soft shadow */
+.cell{border-radius:11px}
+.cell:hover{box-shadow:var(--sh)}
+.cell-today{box-shadow:0 0 0 1px var(--accent-line), 0 8px 22px -14px color-mix(in oklab,var(--accent) 60%,transparent)}
+
+/* section rhythm: eyebrow labels get a touch more presence */
+.eyebrow{color:var(--tx2)}
+.card-h .eyebrow{font-size:11px}
+
+/* the day "instrument" progress bar — thinner, precise, tabular */
+.bar{height:6px;border-radius:99px;background:var(--raised);overflow:hidden}
+.bar-fill{border-radius:99px;transition:width .35s cubic-bezier(.4,0,.2,1)}
+
+/* nav clarity: a subtle divider only where structure needs it */
+.day-sub{border-bottom:1px solid color-mix(in oklab,var(--line) 60%,transparent);padding-bottom:12px;margin-bottom:16px}
+
+/* focus-visible everywhere, crisp and on-brand */
+:is(button,[role=button],a,input,select,textarea,[tabindex="0"]):focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px}
+
+@media (max-width:720px){
+  .card{border-radius:13px}
+  .app-max::before{opacity:.4}
+  .toast{border-radius:13px;margin:0 8px}
+}
+
 /* ── 15. Misc ─────────────────────────────────────────────────── */
 .banner{
   background:color-mix(in oklab,var(--warn) 12%,transparent);
@@ -1214,8 +1282,8 @@ function toast(msg, opts = {}) {
   const box = $('#toasts');
   while (box.children.length > 2) box.firstChild.remove();
   const el = document.createElement('div');
-  el.className = 'toast';
-  el.innerHTML = '<span>' + esc(msg) + '</span>';
+  el.className = 'toast' + (opts.variant ? ' toast-' + opts.variant : '');
+  el.innerHTML = (opts.icon ? '<span class="toast-ic">' + ic(opts.icon) + '</span>' : '') + '<span>' + esc(msg) + '</span>';
   if (opts.undo) {
     const b = document.createElement('button');
     b.className = 'toast-undo'; b.textContent = 'Undo';
@@ -2965,7 +3033,7 @@ async function attachDoc() {
       if (!snap.exists() || snap.metadata.hasPendingWrites) return;
       const data = snap.data(); if (!data || !data.state) return;
       if (Date.now() - cloud.lastPush < 400) return;
-      try { const parsed = normalize(JSON.parse(data.state)); cloud.applying = true; S = parsed; persistLocalOnly(); applyAccent(); route(); cloud.applying = false; toast('Updated from your other device', { ms: 1800 }); } catch (e) {}
+      try { const parsed = normalize(JSON.parse(data.state)); cloud.applying = true; S = parsed; persistLocalOnly(); applyAccent(); route(); cloud.applying = false; toast('Synced — your other device made a change', { ms: 2600, variant: 'sync', icon: 'phone' }); } catch (e) {}
       setCloudStatus('live');
     }, err => setCloudStatus('error'));
     setCloudStatus('live');
