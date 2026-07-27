@@ -79,7 +79,7 @@
 html{color-scheme:dark}
 body{
   background:var(--ink) fixed;
-  background-image:radial-gradient(1000px 420px at 50% -180px, var(--accent-soft), transparent 70%);
+  background-image:none;
   color:var(--tx); font:15px/1.55 var(--sans);
   -webkit-font-smoothing:antialiased; min-height:100dvh;
 }
@@ -469,12 +469,7 @@ input[type=color]{padding:2px;width:36px;height:32px;cursor:pointer;background:v
 
 /* ── 14c. v3 — design refresh ─────────────────────────────────── */
 :root{ --display:'Space Grotesk',var(--sans); }
-body{background:
-  radial-gradient(1100px 560px at 10% -8%, color-mix(in oklab, var(--accent) 8%, transparent), transparent 62%),
-  radial-gradient(900px 480px at 102% -2%, rgba(77,163,255,.055), transparent 58%),
-  var(--ink);}
-body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.05;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");}
+body{background:var(--ink);}
 .app-max{position:relative;z-index:1}
 .brand,.cal-title,.day-title,.stat-val{font-family:var(--display);letter-spacing:-.01em}
 .card{background:linear-gradient(180deg, color-mix(in oklab, #fff 2.5%, var(--panel)), var(--panel));
@@ -766,6 +761,46 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px color-mix(in oklab,
   .app-max::before{opacity:.4}
   .toast{border-radius:13px;margin:0 8px}
 }
+
+/* ── 14h. v9 — minimal: flat & calm, no decoration ───────────── */
+:root{
+  --sh:none; --sh-lg:none;
+}
+/* kill every gradient / glow / texture background across the app */
+body{background:var(--ink) !important;background-image:none !important}
+body::before{display:none !important}
+.app-max::before{display:none !important}        /* the luminous top hairline */
+.card,.stat,.wk-col,.off-card{background:var(--panel) !important;background-image:none !important}
+.btn-acc{background:var(--accent) !important;background-image:none !important}
+.brand-gem{background:var(--accent) !important;background-image:none !important}
+.today-strip,.pull-banner,.reconnect,.nudgebar,.toast,.toast-sync,.bk-box,
+.auth-tab.on,.cloud-pill{background-image:none !important}
+
+/* flat surfaces: borders define structure, not shadows */
+.card,.stat,.wk-col,.ov-panel,.toast,.cell,.bk-box,.off-card{box-shadow:none !important}
+.cell:hover,.card:hover,.btn:hover,.btn-acc:hover{box-shadow:none !important}
+.cell-today{box-shadow:none !important;border-color:var(--accent) !important}
+.btn-acc{box-shadow:none !important}
+input:focus,select:focus,textarea:focus{box-shadow:none !important}
+
+/* remove lift/scale motion; keep only gentle opacity fades for calm */
+.btn:hover,.cell:hover,.today-strip:hover{transform:none !important}
+.pill-pulse{animation:none !important}
+.cloud-pill.syncing .cp-dot{animation:none !important}
+.ov-panel,.toast{animation:none !important}
+
+/* calmer borders and a touch more restraint on radii */
+:root{ --r:12px; --r-sm:9px; }
+.card{border:1px solid var(--line);border-radius:12px}
+.card + .card{margin-top:14px}
+.stat{border:1px solid var(--line)}
+.bar{background:var(--raised)}
+.bar-fill{transition:width .3s ease}
+hr,.day-sub{border-color:var(--line)}
+
+/* accent used sparingly: focus ring stays (accessibility), everything else quiet */
+:is(button,[role=button],a,input,select,textarea,[tabindex="0"]):focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px}
 
 /* ── 15. Misc ─────────────────────────────────────────────────── */
 .banner{
@@ -1604,7 +1639,7 @@ function renderDay(ds, keepScroll = false) {
   <div class="day-head">
     <button class="icon-btn" data-act="back-cal" title="Back to calendar — Esc" aria-label="Back to calendar">${ic('left')}</button>
     <h1 class="day-title">${fromYMD(ds).toLocaleDateString('en-GB',{weekday:'long'})} <span class="mono">· ${fmtLong(ds).replace(/^\w+,?\s*/,'')}</span></h1>
-    <span class="pill pill-${stt}${celebrate ? ' pill-pulse' : ''}">${pillTxt}</span>
+    <span class="pill pill-${stt}">${pillTxt}</span>
     <span class="spacer"></span>
     <button class="icon-btn ${d.off ? 'on' : ''}" data-act="toggle-off" title="${d.off ? 'Unmark day off' : 'Mark as day off — excluded from streaks & stats'}" aria-label="Toggle day off">${ic('moon')}</button>
     <button class="icon-btn" data-act="day-prev" title="Previous weekday — ←" aria-label="Previous weekday">${ic('left')}</button>
