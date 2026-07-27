@@ -1857,16 +1857,10 @@ function cloudSettingsHTML() {
         <span class="cp-dot" style="width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none"></span>
         <span class="acct-email">${esc(cloud.user.email)}</span>
         <button class="btn btn-sm" data-act="cloud-logout">Sign out</button></div>
-      <p class="note-dim" style="margin:0">Signed in — this device syncs live. Use the same email and password on your other device and they stay matched automatically.</p>
-      <div class="data-actions" style="margin-top:12px"><button class="btn btn-sm" data-act="cloud-rule-copy">Copy security rule</button><button class="btn btn-sm" data-act="cloud-reset-cfg">Change project</button></div>
-      <p class="auth-note">If your other device shows a permission error, paste the copied rule into Firestore → Rules → Publish once.</p>`;
+      <p class="note-dim" style="margin:0">Signed in — this device syncs live. Sign in with the same email and password on your other device and they stay matched automatically. Your data is private to your account.</p>`;
   }
-  if (hasCfg()) {
-    return `<p class="note-dim" style="margin-top:0">Project connected. Sign in to start syncing across devices.</p>
-      <div class="data-actions"><button class="btn btn-acc" data-act="open-cloud">${ic('phone')} Sign in to sync</button><button class="btn" data-act="cloud-reset-cfg">Change project</button></div>`;
-  }
-  return `<p class="note-dim" style="margin-top:0">Turn on to sign in and keep every device live in sync — edit on your laptop, your iPhone updates on its own. Free, using your own Firebase project; your data lives under your account.</p>
-    <div class="data-actions"><button class="btn btn-acc" data-act="open-cloud">${ic('phone')} Set up cloud sync</button></div>`;
+  return `<p class="note-dim" style="margin-top:0">Sign in to keep every device in sync — edit on your laptop, your iPhone updates on its own. Your data is private to your account; no one else can see it.</p>
+    <div class="data-actions"><button class="btn btn-acc" data-act="open-cloud">${ic('phone')} Sign in to sync</button></div>`;
 }
 
 function renderSettings() {
@@ -2638,16 +2632,6 @@ function doAct(act, el) {
     case 'open-sync': openSync(); break;
     case 'open-cloud': openCloud(); break;
     case 'auth-mode': authMode = el.dataset.m; openCloud(); break;
-    case 'cfg-save': {
-      const ta = $('#cfgTa'); if (!ta) break;
-      let raw = ta.value.trim(); const b = raw.indexOf('{'), e = raw.lastIndexOf('}');
-      if (b >= 0 && e > b) raw = raw.slice(b, e + 1);
-      let cfg = null;
-      try { cfg = JSON.parse(raw); } catch (x) { try { cfg = (new Function('return (' + raw + ')'))(); } catch (y) { cfg = null; } }
-      if (!cfg || !cfg.apiKey || !cfg.projectId || !cfg.appId) { toast('That config is missing keys — copy the whole firebaseConfig object'); break; }
-      try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (x) {}
-      closeOverlay(); cloudInit(true).then(() => openCloud()); break;
-    }
     case 'auth-go': {
       const email = ($('#authEmail') || {}).value && $('#authEmail').value.trim();
       const pass = ($('#authPass') || {}).value || '';
@@ -2667,10 +2651,9 @@ function doAct(act, el) {
     case 'cloud-logout': cloudLogout(); break;
     case 'cloud-rule-copy': {
       const r = firstRuleHint().replace(/\\n/g, '\n');
-      const ok = () => toast('Security rule copied — paste in Firestore → Rules → Publish');
+      const ok = () => toast('Security rule copied');
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(r).then(ok, ok); else ok(); break;
     }
-    case 'cloud-reset-cfg': { try { localStorage.removeItem(CFG_KEY); } catch (x) {} cloudLogout(); toast('Cloud config cleared'); if (cur.view === 'set') renderSettings(); break; }
     case 'sync-copy-url': {
       syncURL().then(url => {
         const ok = () => toast('Sync link copied — open it on your other device');
@@ -2979,7 +2962,21 @@ document.addEventListener('keydown', e => {
    ════════════════════════════════════════════════════════════════ */
 /* ═══ CLOUD SYNC — Firebase Auth + Firestore live sync (opt-in) ═══ */
 const FB_VER = '10.12.2';
-const getCfg = () => { try { return JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); } catch (e) { return null; } };
+/* Built-in project config — sync works out of the box, no setup on any
+   device. These keys are public by design (Firebase security lives in
+   the Firestore rules, which lock each account to its own data). */
+const BUILTIN_CFG = {
+  apiKey: "AIzaSyDxkh5V7hv7a5dWPPbk4BY3SS-vBt70MB4",
+  authDomain: "daily-ops-a878c.firebaseapp.com",
+  projectId: "daily-ops-a878c",
+  storageBucket: "daily-ops-a878c.firebasestorage.app",
+  messagingSenderId: "278477888218",
+  appId: "1:278477888218:web:e352fc35988c0a1b4a23e3"
+};
+const getCfg = () => {
+  try { const o = JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); if (o && o.apiKey && o.projectId && o.appId) return o; } catch (e) {}
+  return BUILTIN_CFG;                       // fall back to the built-in project
+};
 const hasCfg = () => { const c = getCfg(); return !!(c && c.apiKey && c.projectId && c.appId); };
 function setCloudStatus(s) {
   cloud.status = s;
@@ -3057,24 +3054,9 @@ async function cloudLogout() {
 let authMode = 'login';
 function openCloud() {
   closeOverlay();
-  if (!hasCfg()) { overlays.innerHTML = cloudConfigHTML(); setTimeout(() => { const t = $('#cfgTa'); if (t) t.focus(); }, 30); return; }
   overlays.innerHTML = cloudAuthHTML(); setTimeout(() => { const e = $('#authEmail'); if (e) e.focus(); }, 30);
 }
-function cloudConfigHTML() {
-  return `<div class="ov" role="dialog" aria-label="Set up cloud sync"><div class="ov-panel eod-panel">
-      <div class="card-h"><span class="eyebrow">Set up cloud sync — one time</span></div>
-      <p class="note-dim" style="margin-top:0">Sync needs a free Firebase project (yours, so the data stays under your account). Create one, then paste its web-app config.</p>
-      <ol class="note-dim" style="margin:0 0 12px 18px;line-height:1.7">
-        <li>Go to <span class="mono">console.firebase.google.com</span> → Add project</li>
-        <li>Build → Authentication → Get started → enable <strong>Email/Password</strong></li>
-        <li>Build → Firestore Database → Create database</li>
-        <li>Project settings (gear) → Your apps → Web (&lt;/&gt;) → register → copy <span class="mono">firebaseConfig</span></li></ol>
-      <textarea class="notes-ta cfg-ta" id="cfgTa" spellcheck="false" placeholder='Paste firebaseConfig here:
-{ apiKey: "AIza...", authDomain: "your-app.firebaseapp.com", projectId: "your-app", appId: "1:...:web:..." }'></textarea>
-      <div class="data-actions" style="margin-top:10px"><button class="btn btn-acc" data-act="cfg-save">Save & continue</button><button class="btn" data-act="back-cal">Cancel</button></div>
-      <p class="auth-note">These keys are meant to be public — Firebase security comes from access rules, not keys. I'll give you the one rule to paste after sign-in. Stored only in this browser.</p>
-    </div></div>`;
-}
+
 function cloudAuthHTML() {
   return `<div class="ov" role="dialog" aria-label="Sign in to sync"><div class="ov-panel eod-panel">
       <div class="card-h"><span class="eyebrow">${authMode === 'signup' ? 'Create your sync account' : 'Sign in to sync'}</span></div>
@@ -3085,7 +3067,7 @@ function cloudAuthHTML() {
       <div class="auth-field"><label>Password</label><input type="password" id="authPass" autocomplete="${authMode === 'signup' ? 'new-password' : 'current-password'}" placeholder="${authMode === 'signup' ? 'at least 6 characters' : 'your password'}"></div>
       <p class="auth-err" id="authErr"></p>
       <div class="data-actions"><button class="btn btn-acc" data-act="auth-go">${authMode === 'signup' ? 'Create account & sync' : 'Sign in'}</button><button class="btn" data-act="back-cal">Cancel</button></div>
-      <p class="auth-note">Use the same email and password on your laptop and iPhone — both stay in sync automatically. Your current data uploads on first sign-in.</p>
+      <p class="auth-note">New here? Create an account, then sign in with the same email and password on your other device — both stay in sync automatically. Your data is private to you.</p>
     </div></div>`;
 }
 function firstRuleHint() { return "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /users/{uid}/{document=**} {\n      allow read, write: if request.auth != null && request.auth.uid == uid;\n    }\n  }\n}"; }
@@ -3138,7 +3120,7 @@ $('#tabbar').innerHTML = [
 })();
 initBackup();   // reconnect a previously linked backup file, restore if this browser is empty
 checkEodNudge();
-if (hasCfg()) cloudInit(false); else setCloudStatus('off');
+cloudInit(false);   // built-in config → connect and restore any signed-in session automatically
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
   navigator.serviceWorker.register('sw.js').catch(() => {});   // PWA offline cache; silently absent on file://
 }
