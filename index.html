@@ -674,6 +674,31 @@ input:focus,textarea:focus,select:focus{border-color:var(--accent-line)}
 .clr-wrap input[type=color]::-webkit-color-swatch-wrapper{padding:2px}
 .clr-wrap input[type=color]::-webkit-color-swatch{border:none;border-radius:4px}
 
+/* ── 14f. v6 — cloud login & sync status ──────────────────────── */
+.cloud-pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);
+  background:var(--raised);border-radius:99px;padding:4px 10px;font-size:11.5px;color:var(--tx2);
+  cursor:pointer;font-family:var(--sans);white-space:nowrap}
+.cloud-pill:hover{border-color:var(--line2)}
+.cloud-pill .cp-dot{width:7px;height:7px;border-radius:50%;background:var(--tx3);flex:none}
+.cloud-pill.on .cp-dot{background:var(--ok);box-shadow:0 0 0 3px color-mix(in oklab,var(--ok) 22%,transparent)}
+.cloud-pill.syncing .cp-dot{background:var(--info);animation:cpPulse 1s ease-in-out infinite}
+.cloud-pill.err .cp-dot{background:var(--warn)}
+@keyframes cpPulse{0%,100%{opacity:1}50%{opacity:.3}}
+@media (max-width:720px){ .cloud-pill .cp-txt{display:none} .cloud-pill{padding:6px} }
+.auth-tabs{display:flex;gap:6px;margin-bottom:14px}
+.auth-tab{flex:1;padding:9px;border:1px solid var(--line);background:var(--raised);color:var(--tx2);
+  border-radius:var(--r-sm);cursor:pointer;font-family:var(--sans);font-size:13px;font-weight:500}
+.auth-tab.on{background:var(--accent);border-color:var(--accent);color:#0b0e14}
+.auth-field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+.auth-field label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--tx3);font-weight:600}
+.auth-field input{width:100%}
+.auth-err{color:var(--warn);font-size:12.5px;margin:0 0 12px;min-height:16px}
+.auth-note{font-size:12px;color:var(--tx3);line-height:1.5;margin-top:12px}
+.cfg-ta{width:100%;min-height:120px;font-size:12px}
+.acct-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.acct-email{font-family:var(--mono);font-size:12.5px;color:var(--tx);flex:1;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
 /* ── 15. Misc ─────────────────────────────────────────────────── */
 .banner{
   background:color-mix(in oklab,var(--warn) 12%,transparent);
@@ -836,11 +861,15 @@ function load() {
 
 let S = load();
 
-function persist() {
+function persistLocalOnly() {
   try { localStorage.setItem(DB_KEY, JSON.stringify(S)); }
   catch (e) { storageOK = false; $('#banner').classList.add('show'); }
   if (typeof backupSoon === 'function' && bkState === 'linked') backupSoon();
   if (AS && typeof artifactSoon === 'function') artifactSoon();
+}
+function persist() {
+  persistLocalOnly();
+  if (cloud.on && !cloud.applying && typeof pushCloudSoon === 'function') pushCloudSoon();
 }
 const saveSoon = debounce(persist, 350);
 function persistArtifact() {
@@ -1277,6 +1306,7 @@ function topbarHTML() {
       <span class="brand-gem"></span>Daily Ops <small>// tracker</small>
     </button>
     <nav class="tb-actions">
+      <button class="cloud-pill" id="cloudPill" data-act="open-cloud" title="Cloud sync"><span class="cp-dot"></span><span class="cp-txt">Sync</span></button>
       <button class="icon-btn" data-act="open-search" title="Search &amp; commands — Ctrl+K" aria-label="Search and commands">${ic('search')}</button>
       <button class="icon-btn" data-act="open-week" title="Week view — W" aria-label="Week view">${ic('week')}</button>
       <button class="icon-btn" data-act="open-stats" title="Statistics" aria-label="Statistics">${ic('chart')}</button>
@@ -1753,6 +1783,24 @@ function backupBoxHTML() {
   <p class="note-dim" style="margin:8px 0 0">Pick or create a <span class="mono">.json</span> file once; the app then mirrors every change to it. If you ever open this app in a fresh browser and it's empty, reconnect the same file to restore everything.</p></div>`;
 }
 
+function cloudSettingsHTML() {
+  if (cloud.user) {
+    return `<div class="acct-row">
+        <span class="cp-dot" style="width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none"></span>
+        <span class="acct-email">${esc(cloud.user.email)}</span>
+        <button class="btn btn-sm" data-act="cloud-logout">Sign out</button></div>
+      <p class="note-dim" style="margin:0">Signed in — this device syncs live. Use the same email and password on your other device and they stay matched automatically.</p>
+      <div class="data-actions" style="margin-top:12px"><button class="btn btn-sm" data-act="cloud-rule-copy">Copy security rule</button><button class="btn btn-sm" data-act="cloud-reset-cfg">Change project</button></div>
+      <p class="auth-note">If your other device shows a permission error, paste the copied rule into Firestore → Rules → Publish once.</p>`;
+  }
+  if (hasCfg()) {
+    return `<p class="note-dim" style="margin-top:0">Project connected. Sign in to start syncing across devices.</p>
+      <div class="data-actions"><button class="btn btn-acc" data-act="open-cloud">${ic('phone')} Sign in to sync</button><button class="btn" data-act="cloud-reset-cfg">Change project</button></div>`;
+  }
+  return `<p class="note-dim" style="margin-top:0">Turn on to sign in and keep every device live in sync — edit on your laptop, your iPhone updates on its own. Free, using your own Firebase project; your data lives under your account.</p>
+    <div class="data-actions"><button class="btn btn-acc" data-act="open-cloud">${ic('phone')} Set up cloud sync</button></div>`;
+}
+
 function renderSettings() {
   cur = { view: 'set', ds: null };
   app.innerHTML = topbarHTML() + `
@@ -1804,6 +1852,11 @@ function renderSettings() {
         <input type="url" data-f="link-url" value="${esc(l.url)}" aria-label="URL" placeholder="https://…">
         <button class="icon-btn btn-danger" data-act="link-del" data-id="${l.id}" aria-label="Delete link">${ic('trash')}</button>
       </div>`).join('') || '<p class="empty">No links. Add the ones you open every day.</p>'}</div>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><span class="eyebrow">Cloud sync — across devices</span></div>
+    ${cloudSettingsHTML()}
   </section>
 
   <section class="card">
@@ -2237,6 +2290,8 @@ function importFromCode(code, how) {
   }).catch(() => toast('That code wasn\u2019t recognised — copy it again in full'));
 }
 let pendingImport = null;
+let cloud = { on: false, status: 'off', user: null, app: null, db: null, auth: null, unsub: null, applying: false, lastPush: 0 };
+const CFG_KEY = 'dailyops.fbcfg';
 
 function openTransfer() {
   closeOverlay();
@@ -2513,6 +2568,41 @@ function doAct(act, el) {
     }
     case 'xfer-open': openTransfer(); break;
     case 'open-sync': openSync(); break;
+    case 'open-cloud': openCloud(); break;
+    case 'auth-mode': authMode = el.dataset.m; openCloud(); break;
+    case 'cfg-save': {
+      const ta = $('#cfgTa'); if (!ta) break;
+      let raw = ta.value.trim(); const b = raw.indexOf('{'), e = raw.lastIndexOf('}');
+      if (b >= 0 && e > b) raw = raw.slice(b, e + 1);
+      let cfg = null;
+      try { cfg = JSON.parse(raw); } catch (x) { try { cfg = (new Function('return (' + raw + ')'))(); } catch (y) { cfg = null; } }
+      if (!cfg || !cfg.apiKey || !cfg.projectId || !cfg.appId) { toast('That config is missing keys — copy the whole firebaseConfig object'); break; }
+      try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (x) {}
+      closeOverlay(); cloudInit(true).then(() => openCloud()); break;
+    }
+    case 'auth-go': {
+      const email = ($('#authEmail') || {}).value && $('#authEmail').value.trim();
+      const pass = ($('#authPass') || {}).value || '';
+      const errEl = $('#authErr');
+      if (!email || !pass) { if (errEl) errEl.textContent = 'Enter your email and password.'; break; }
+      el.disabled = true; el.textContent = 'Working…';
+      const fail = er => {
+        const code = (er && er.code || '').replace('auth/', '');
+        const msg = { 'invalid-credential': 'Wrong email or password.', 'invalid-email': 'That email doesn\u2019t look right.',
+          'email-already-in-use': 'That email already has an account — switch to Sign in.', 'weak-password': 'Password needs at least 6 characters.',
+          'user-not-found': 'No account with that email — create one first.', 'wrong-password': 'Wrong password.',
+          'network-request-failed': 'Network problem — try again.', 'operation-not-allowed': 'Enable Email/Password in your Firebase project first.' }[code] || ('Could not sign in (' + (code || 'error') + ').');
+        if (errEl) errEl.textContent = msg; el.disabled = false; el.textContent = authMode === 'signup' ? 'Create account & sync' : 'Sign in';
+      };
+      (authMode === 'signup' ? cloudSignup(email, pass) : cloudLogin(email, pass)).then(() => closeOverlay(), fail); break;
+    }
+    case 'cloud-logout': cloudLogout(); break;
+    case 'cloud-rule-copy': {
+      const r = firstRuleHint().replace(/\\n/g, '\n');
+      const ok = () => toast('Security rule copied — paste in Firestore → Rules → Publish');
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(r).then(ok, ok); else ok(); break;
+    }
+    case 'cloud-reset-cfg': { try { localStorage.removeItem(CFG_KEY); } catch (x) {} cloudLogout(); toast('Cloud config cleared'); if (cur.view === 'set') renderSettings(); break; }
     case 'sync-copy-url': {
       syncURL().then(url => {
         const ok = () => toast('Sync link copied — open it on your other device');
@@ -2819,6 +2909,119 @@ document.addEventListener('keydown', e => {
 /* ════════════════════════════════════════════════════════════════
    ROUTER & INIT
    ════════════════════════════════════════════════════════════════ */
+/* ═══ CLOUD SYNC — Firebase Auth + Firestore live sync (opt-in) ═══ */
+const FB_VER = '10.12.2';
+const getCfg = () => { try { return JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); } catch (e) { return null; } };
+const hasCfg = () => { const c = getCfg(); return !!(c && c.apiKey && c.projectId && c.appId); };
+function setCloudStatus(s) {
+  cloud.status = s;
+  const pill = $('#cloudPill'); if (!pill) return;
+  pill.className = 'cloud-pill' + (s === 'live' ? ' on' : s === 'syncing' ? ' syncing' : s === 'error' ? ' err' : '');
+  const label = { off: 'Sync off', 'signed-out': 'Sign in to sync', connecting: 'Connecting…', syncing: 'Syncing…', live: 'Synced', error: 'Sync error' }[s] || 'Sync';
+  const t = pill.querySelector('.cp-txt'); if (t) t.textContent = label;
+  pill.title = cloud.user ? ('Cloud sync — ' + cloud.user.email) : label;
+}
+let fbMods = null;
+async function loadFirebase() {
+  if (fbMods) return fbMods;
+  const base = `https://www.gstatic.com/firebasejs/${FB_VER}`;
+  const [appM, authM, fsM] = await Promise.all([
+    import(`${base}/firebase-app.js`), import(`${base}/firebase-auth.js`), import(`${base}/firebase-firestore.js`) ]);
+  fbMods = { appM, authM, fsM }; return fbMods;
+}
+async function cloudInit(interactive) {
+  if (!hasCfg()) { if (interactive) openCloud(); return; }
+  setCloudStatus('connecting');
+  let m; try { m = await loadFirebase(); } catch (e) { setCloudStatus('error'); if (interactive) toast('Could not load sync — check your connection'); return; }
+  try {
+    cloud.app = m.appM.initializeApp(getCfg());
+    cloud.auth = m.authM.getAuth(cloud.app);
+    try { cloud.db = m.fsM.initializeFirestore(cloud.app, { localCache: m.fsM.persistentLocalCache({}) }); }
+    catch (e) { cloud.db = m.fsM.getFirestore(cloud.app); }
+    m.authM.onAuthStateChanged(cloud.auth, u => {
+      cloud.user = u; cloud.on = !!u;
+      if (u) { setCloudStatus('syncing'); attachDoc(); if (cur.view === 'set') renderSettings(); }
+      else { detachDoc(); setCloudStatus('signed-out'); if (cur.view === 'set') renderSettings(); }
+    });
+  } catch (e) { setCloudStatus('error'); if (interactive) toast('Sync setup failed — re-check your Firebase config'); }
+}
+function docRef() { const { doc } = fbMods.fsM; return doc(cloud.db, 'users', cloud.user.uid, 'state', 'main'); }
+async function attachDoc() {
+  const { getDoc, onSnapshot, setDoc } = fbMods.fsM; detachDoc();
+  try {
+    const ref = docRef();
+    const snap = await getDoc(ref);
+    if (!snap.exists()) { await setDoc(ref, { state: JSON.stringify(S), updated: Date.now() }); }
+    else {
+      const remote = snap.data();
+      if (remote && remote.state) {
+        const parsed = normalize(JSON.parse(remote.state));
+        const localEmpty = Object.keys(S.days).length === 0 && S.templates.length === 11;
+        if (!localEmpty && Object.keys(parsed.days).length === 0) { await setDoc(ref, { state: JSON.stringify(S), updated: Date.now() }); }
+        else { cloud.applying = true; S = parsed; persistLocalOnly(); applyAccent(); route(); cloud.applying = false; }
+      }
+    }
+    cloud.unsub = onSnapshot(ref, snap => {
+      if (!snap.exists() || snap.metadata.hasPendingWrites) return;
+      const data = snap.data(); if (!data || !data.state) return;
+      if (Date.now() - cloud.lastPush < 400) return;
+      try { const parsed = normalize(JSON.parse(data.state)); cloud.applying = true; S = parsed; persistLocalOnly(); applyAccent(); route(); cloud.applying = false; toast('Updated from your other device', { ms: 1800 }); } catch (e) {}
+      setCloudStatus('live');
+    }, err => setCloudStatus('error'));
+    setCloudStatus('live');
+  } catch (e) { setCloudStatus('error'); }
+}
+function detachDoc() { if (cloud.unsub) { try { cloud.unsub(); } catch (e) {} cloud.unsub = null; } }
+async function pushCloud() {
+  if (!cloud.on || cloud.applying || !cloud.db || !cloud.user || !fbMods) return;
+  try { const { setDoc } = fbMods.fsM; cloud.lastPush = Date.now(); setCloudStatus('syncing'); await setDoc(docRef(), { state: JSON.stringify(S), updated: Date.now() }); setCloudStatus('live'); }
+  catch (e) { setCloudStatus('error'); }
+}
+const pushCloudSoon = debounce(pushCloud, 700);
+async function cloudSignup(email, pass) { const { createUserWithEmailAndPassword } = fbMods.authM; return createUserWithEmailAndPassword(cloud.auth, email, pass); }
+async function cloudLogin(email, pass) { const { signInWithEmailAndPassword } = fbMods.authM; return signInWithEmailAndPassword(cloud.auth, email, pass); }
+async function cloudLogout() {
+  const { signOut } = fbMods.authM; detachDoc();
+  try { await signOut(cloud.auth); } catch (e) {}
+  cloud.user = null; cloud.on = false; setCloudStatus(hasCfg() ? 'signed-out' : 'off');
+  toast('Signed out — this device is local again'); if (cur.view === 'set') renderSettings();
+}
+let authMode = 'login';
+function openCloud() {
+  closeOverlay();
+  if (!hasCfg()) { overlays.innerHTML = cloudConfigHTML(); setTimeout(() => { const t = $('#cfgTa'); if (t) t.focus(); }, 30); return; }
+  overlays.innerHTML = cloudAuthHTML(); setTimeout(() => { const e = $('#authEmail'); if (e) e.focus(); }, 30);
+}
+function cloudConfigHTML() {
+  return `<div class="ov" role="dialog" aria-label="Set up cloud sync"><div class="ov-panel eod-panel">
+      <div class="card-h"><span class="eyebrow">Set up cloud sync — one time</span></div>
+      <p class="note-dim" style="margin-top:0">Sync needs a free Firebase project (yours, so the data stays under your account). Create one, then paste its web-app config.</p>
+      <ol class="note-dim" style="margin:0 0 12px 18px;line-height:1.7">
+        <li>Go to <span class="mono">console.firebase.google.com</span> → Add project</li>
+        <li>Build → Authentication → Get started → enable <strong>Email/Password</strong></li>
+        <li>Build → Firestore Database → Create database</li>
+        <li>Project settings (gear) → Your apps → Web (&lt;/&gt;) → register → copy <span class="mono">firebaseConfig</span></li></ol>
+      <textarea class="notes-ta cfg-ta" id="cfgTa" spellcheck="false" placeholder='Paste firebaseConfig here:
+{ apiKey: "AIza...", authDomain: "your-app.firebaseapp.com", projectId: "your-app", appId: "1:...:web:..." }'></textarea>
+      <div class="data-actions" style="margin-top:10px"><button class="btn btn-acc" data-act="cfg-save">Save & continue</button><button class="btn" data-act="back-cal">Cancel</button></div>
+      <p class="auth-note">These keys are meant to be public — Firebase security comes from access rules, not keys. I'll give you the one rule to paste after sign-in. Stored only in this browser.</p>
+    </div></div>`;
+}
+function cloudAuthHTML() {
+  return `<div class="ov" role="dialog" aria-label="Sign in to sync"><div class="ov-panel eod-panel">
+      <div class="card-h"><span class="eyebrow">${authMode === 'signup' ? 'Create your sync account' : 'Sign in to sync'}</span></div>
+      <div class="auth-tabs">
+        <button class="auth-tab ${authMode === 'login' ? 'on' : ''}" data-act="auth-mode" data-m="login">Sign in</button>
+        <button class="auth-tab ${authMode === 'signup' ? 'on' : ''}" data-act="auth-mode" data-m="signup">Create account</button></div>
+      <div class="auth-field"><label>Email</label><input type="email" id="authEmail" autocomplete="username" placeholder="you@email.com"></div>
+      <div class="auth-field"><label>Password</label><input type="password" id="authPass" autocomplete="${authMode === 'signup' ? 'new-password' : 'current-password'}" placeholder="${authMode === 'signup' ? 'at least 6 characters' : 'your password'}"></div>
+      <p class="auth-err" id="authErr"></p>
+      <div class="data-actions"><button class="btn btn-acc" data-act="auth-go">${authMode === 'signup' ? 'Create account & sync' : 'Sign in'}</button><button class="btn" data-act="back-cal">Cancel</button></div>
+      <p class="auth-note">Use the same email and password on your laptop and iPhone — both stay in sync automatically. Your current data uploads on first sign-in.</p>
+    </div></div>`;
+}
+function firstRuleHint() { return "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /users/{uid}/{document=**} {\n      allow read, write: if request.auth != null && request.auth.uid == uid;\n    }\n  }\n}"; }
+
 function route() {
   closeOverlay();
   editingTaskId = null; carryMoveId = null;
@@ -2867,6 +3070,7 @@ $('#tabbar').innerHTML = [
 })();
 initBackup();   // reconnect a previously linked backup file, restore if this browser is empty
 checkEodNudge();
+if (hasCfg()) cloudInit(false); else setCloudStatus('off');
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
   navigator.serviceWorker.register('sw.js').catch(() => {});   // PWA offline cache; silently absent on file://
 }
@@ -2880,6 +3084,7 @@ window.__ops = {
   FS_OK, idb, linkBackup, unlinkBackup, reconnectBackup, writeBackup, maybeRestore,
   persist, normalize, snapshotUndo, packState, unpackState, checkEodNudge, updateNowMarker,
   syncURL, importFromCode, get pendingImport() { return pendingImport; },
+  get cloud() { return cloud; }, hasCfg, getCfg, persistLocalOnly, setCloudStatus, firstRuleHint,
 };
 </script>
 </body>
