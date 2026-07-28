@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0e14">
+<meta name="theme-color" content="#f6f4ef">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -801,6 +801,144 @@ hr,.day-sub{border-color:var(--line)}
 /* accent used sparingly: focus ring stays (accessibility), everything else quiet */
 :is(button,[role=button],a,input,select,textarea,[tabindex="0"]):focus-visible{
   outline:2px solid var(--accent);outline-offset:2px}
+
+/* ── 14i. v10 — warm paper theme: calm, light, friendly ───────── */
+:root{
+  /* warm off-white paper surfaces */
+  --ink:#f6f4ef;         /* page — warm paper           */
+  --panel:#ffffff;       /* cards — clean white         */
+  --raised:#efece5;      /* inputs, hover, chips         */
+  --line:#e4e0d7;        /* soft borders                */
+  --line2:#d3cec2;       /* stronger borders            */
+
+  /* warm grey ink for text — easy on the eyes */
+  --tx:#2b2a26;          /* primary                     */
+  --tx2:#6b6860;         /* secondary                   */
+  --tx3:#9c988d;         /* muted                       */
+
+  /* calm sage-green accent — friendly, not corporate */
+  --accent:#5b8a72;
+  --accent-soft:color-mix(in oklab, var(--accent) 12%, transparent);
+  --accent-line:color-mix(in oklab, var(--accent) 40%, transparent);
+
+  /* softened semantic status — same meanings, gentler tones */
+  --ok:#4f9d6f;          /* done        */
+  --info:#4a86c5;        /* in progress */
+  --warn:#d99036;        /* overdue     */
+  --bad:#cf6b63;         /* destructive */
+
+  --r:14px; --r-sm:10px;
+  --sh:none; --sh-lg:none;
+}
+html,body{background:var(--ink) !important;background-image:none !important;color:var(--tx)}
+body::before,.app-max::before{display:none !important}
+
+/* cards: clean white with a soft warm border, generous rounding */
+.card,.stat,.wk-col,.off-card{background:var(--panel) !important;background-image:none !important;
+  border:1px solid var(--line) !important;box-shadow:none !important;border-radius:14px}
+.card + .card{margin-top:14px}
+
+/* inputs: soft, friendly, clearly tappable */
+input,select,textarea{background:var(--raised);border:1px solid var(--line);color:var(--tx);border-radius:10px}
+input::placeholder,textarea::placeholder{color:var(--tx3)}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:none !important}
+
+/* buttons: calm, tactile, obvious */
+.btn{background:var(--panel);border:1px solid var(--line2);color:var(--tx);border-radius:10px;box-shadow:none !important}
+.btn:hover{background:var(--raised);transform:none !important}
+.btn-acc{background:var(--accent) !important;background-image:none !important;border-color:var(--accent) !important;color:#fff !important}
+.btn-acc:hover{background:color-mix(in oklab,var(--accent) 88%, #000) !important}
+.btn-danger{color:var(--bad);border-color:color-mix(in oklab,var(--bad) 40%,var(--line2))}
+.icon-btn{color:var(--tx2);border-radius:10px}
+.icon-btn:hover{background:var(--raised);color:var(--tx)}
+.icon-btn.on{background:var(--accent-soft);color:var(--accent)}
+
+/* topbar: paper, subtle divider, no glass/blur */
+.topbar{background:color-mix(in oklab,var(--ink) 88%, transparent) !important;
+  -webkit-backdrop-filter:none;backdrop-filter:none;border-bottom:1px solid var(--line)}
+.brand-gem{background:var(--accent) !important;background-image:none !important}
+.brand-gem::after{background:var(--panel) !important}
+.brand{color:var(--tx)}
+
+/* calendar: soft cells, clear today, gentle hover */
+.cell{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:none !important}
+.cell:hover{background:var(--raised);transform:none !important;box-shadow:none !important}
+.cell-today{border-color:var(--accent) !important;box-shadow:0 0 0 1px var(--accent) inset !important}
+.cell-dayoff{background:repeating-linear-gradient(-45deg, var(--panel) 0 6px, var(--raised) 6px 7px)}
+.dow{color:var(--tx3)}
+
+/* pills, chips, tags: soft rounded, quiet */
+.pill{border:1px solid var(--line2);background:var(--panel);border-radius:99px;font-weight:600}
+.pill-done{color:var(--ok);border-color:color-mix(in oklab,var(--ok) 35%,var(--line2))}
+.pill-part{color:var(--info);border-color:color-mix(in oklab,var(--info) 35%,var(--line2))}
+.pill-over{color:var(--warn);border-color:color-mix(in oklab,var(--warn) 35%,var(--line2))}
+.kbd{background:var(--raised);border:1px solid var(--line2);color:var(--tx2);box-shadow:none}
+.count,.cloud-pill,.off-tag{border-radius:99px}
+.cloud-pill{background:var(--panel);border-color:var(--line2);color:var(--tx2)}
+.cloud-pill.on .cp-dot{background:var(--ok)}
+
+/* progress bars: soft track, calm fill */
+.bar{background:var(--raised);height:6px;border-radius:99px}
+.bar-fill{border-radius:99px}
+.ring-track{stroke:var(--line)}
+
+/* tasks: airy rows, friendly checkboxes */
+.task{border-bottom:1px solid var(--line)}
+.task.t-now{background:var(--accent-soft);border-color:var(--accent-line)}
+.cb{border:1.5px solid var(--line2);background:var(--panel)}
+.task.done .cb{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* overlays: soft dim, clean white panel */
+.ov{background:rgba(43,42,38,.32);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+.ov-panel{background:var(--panel) !important;border:1px solid var(--line);box-shadow:0 12px 40px -12px rgba(43,42,38,.25) !important;border-radius:16px}
+
+/* toasts: clean card, gentle */
+.toast{background:var(--panel) !important;border:1px solid var(--line2);color:var(--tx);box-shadow:0 8px 28px -10px rgba(43,42,38,.25) !important;border-radius:12px}
+.toast-sync{border-color:var(--accent-line);background:var(--accent-soft) !important}
+.toast-sync .toast-ic{color:var(--accent)}
+
+/* banners: soft tinted, no harsh edges */
+.today-strip,.bk-box{background:var(--panel) !important;background-image:none !important;border:1px solid var(--line);border-radius:14px;box-shadow:none !important}
+.today-strip:hover{background:var(--raised);transform:none !important}
+.pull-banner{background:color-mix(in oklab,var(--warn) 10%, var(--panel));border:1px dashed color-mix(in oklab,var(--warn) 40%,transparent);color:color-mix(in oklab,var(--warn) 60%,#000);border-radius:12px}
+.nudgebar{background:color-mix(in oklab,var(--warn) 10%, var(--panel));border:1px solid color-mix(in oklab,var(--warn) 35%,transparent);color:color-mix(in oklab,var(--warn) 62%,#000);border-radius:12px}
+.reconnect{background:color-mix(in oklab,var(--info) 10%, var(--panel));border:1px solid color-mix(in oklab,var(--info) 35%,transparent);color:color-mix(in oklab,var(--info) 60%,#000);border-radius:12px}
+
+/* week view: soft columns */
+.wk-col{background:var(--panel) !important;border:1px solid var(--line) !important}
+.wk-col.wk-today{border-color:var(--accent) !important;box-shadow:none !important}
+.wk-task:hover{background:var(--raised)}
+.wk-task.done .wk-tick{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* stats heatmap: warm empty → green full */
+.heat-cell{background:var(--raised);border:1px solid var(--line)}
+.hc-done{background:var(--accent);border-color:var(--accent)}
+.hc-part{background:color-mix(in oklab,var(--info) 45%, var(--panel));border-color:transparent}
+.hc-over{background:color-mix(in oklab,var(--warn) 42%, var(--panel));border-color:transparent}
+.hc-today{outline:2px solid var(--accent)}
+
+/* auth / cloud screens: clean and calm */
+.auth-tab{background:var(--raised);border:1px solid var(--line);color:var(--tx2);border-radius:10px}
+.auth-tab.on{background:var(--accent) !important;border-color:var(--accent) !important;color:#fff}
+
+/* tab bar (phone): paper, clean */
+@media (max-width:720px){
+  .tabbar{background:color-mix(in oklab,var(--ink) 92%, transparent) !important;
+    -webkit-backdrop-filter:none;backdrop-filter:none;border-top:1px solid var(--line)}
+  .tab-i{color:var(--tx3)}
+}
+
+/* motion: calm only */
+.pill-pulse,.cloud-pill.syncing .cp-dot,.ov-panel,.toast{animation:none !important}
+*{transition-duration:.14s}
+
+/* selection + scrollbar match the warm theme */
+::selection{background:var(--accent-soft)}
+*::-webkit-scrollbar-thumb{background:var(--line2)}
+*::-webkit-scrollbar-track{background:transparent}
+
+/* accessible focus ring stays */
+:is(button,[role=button],a,input,select,textarea,[tabindex="0"]):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 /* ── 15. Misc ─────────────────────────────────────────────────── */
 .banner{
