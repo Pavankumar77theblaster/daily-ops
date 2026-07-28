@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#f6f4ef">
+<meta name="theme-color" content="#17161c">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -938,6 +938,218 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:no
 *::-webkit-scrollbar-track{background:transparent}
 
 /* accessible focus ring stays */
+:is(button,[role=button],a,input,select,textarea,[tabindex="0"]):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ══ 14j. v11 — full redesign: "Warm Charcoal" design system ══════
+   A cohesive dark theme — warm charcoal surfaces, amber accent, a
+   refined type scale, consistent 4px spacing rhythm, unified 1.75
+   stroke icons, and polished states across every screen. This layer
+   is authoritative and supersedes all earlier styling. ═══════════ */
+:root{
+  /* surfaces — warm charcoal, layered by elevation */
+  --ink:#17161c;         /* app background — warm near-black   */
+  --panel:#201f27;       /* cards                              */
+  --raised:#2a2932;      /* inputs, hover, chips               */
+  --line:#332f3d;        /* borders                            */
+  --line2:#433e50;       /* stronger borders / tracks          */
+
+  /* text — warm off-whites */
+  --tx:#f0eef4;
+  --tx2:#a9a4b8;
+  --tx3:#736e82;
+
+  /* accent — warm amber, confident but not harsh */
+  --accent:#e0a458;
+  --accent-soft:color-mix(in oklab, var(--accent) 15%, transparent);
+  --accent-line:color-mix(in oklab, var(--accent) 42%, transparent);
+
+  /* status — tuned to sit in harmony with amber on charcoal */
+  --ok:#63c795;          /* done        */
+  --info:#6aa8e8;        /* in progress */
+  --warn:#e8994a;        /* overdue     */
+  --bad:#e57b78;         /* destructive */
+
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+  --display:'Sora',var(--sans);
+
+  --r:14px; --r-sm:10px; --r-lg:18px;
+  --sh:none; --sh-lg:none;
+  --gap:16px;
+}
+html,body{background:var(--ink) !important;background-image:none !important;color:var(--tx);
+  font-family:var(--sans);font-size:14.5px;line-height:1.55;letter-spacing:.005em;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+body::before,.app-max::before{display:none !important}
+
+/* ── type scale ── */
+.brand,.day-title,.cal-title,.stat-val,.wk-num,.off-card h2{font-family:var(--display);letter-spacing:-.02em;font-weight:650}
+.day-title{font-size:20px}
+.eyebrow{font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;font-weight:650;color:var(--tx2)}
+.stat-val,.count,.mono,.cell-frac,.wk-count,.ts-frac,.cb-n{font-variant-numeric:tabular-nums}
+h1,h2,h3{letter-spacing:-.01em}
+
+/* ── icons: unify stroke weight to 1.75, round joins ── */
+svg[viewBox="0 0 24 24"]{stroke-width:1.75}
+.icon-btn svg{width:19px;height:19px}
+
+/* ── cards ── */
+.card,.stat,.wk-col,.off-card{background:var(--panel) !important;background-image:none !important;
+  border:1px solid var(--line) !important;box-shadow:none !important;border-radius:var(--r)}
+.card{padding:18px}
+.card + .card{margin-top:var(--gap)}
+.card-h{border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:14px}
+
+/* ── inputs: unified, tactile ── */
+input,select,textarea{background:var(--raised);border:1px solid var(--line);color:var(--tx);
+  border-radius:var(--r-sm);padding:9px 12px;transition:border-color .14s ease}
+input::placeholder,textarea::placeholder{color:var(--tx3)}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:none !important;outline:none}
+
+/* ── buttons: three clear tiers ── */
+.btn{background:var(--raised);border:1px solid var(--line2);color:var(--tx);border-radius:var(--r-sm);
+  padding:9px 15px;font-weight:550;font-family:var(--sans);box-shadow:none !important;transition:background .14s ease,border-color .14s ease}
+.btn:hover{background:var(--line);transform:none !important}
+.btn-sm{padding:6px 11px;font-size:13px}
+.btn-acc{background:var(--accent) !important;background-image:none !important;border-color:var(--accent) !important;color:#211a10 !important;font-weight:650}
+.btn-acc:hover{background:color-mix(in oklab,var(--accent) 90%, #fff) !important}
+.btn-danger{background:transparent;color:var(--bad);border-color:color-mix(in oklab,var(--bad) 40%,var(--line2))}
+.btn-danger:hover{background:color-mix(in oklab,var(--bad) 12%,transparent)}
+.icon-btn{background:transparent;border:1px solid transparent;color:var(--tx2);border-radius:var(--r-sm);
+  width:38px;height:38px;display:inline-flex;align-items:center;justify-content:center;transition:background .14s ease,color .14s ease}
+.icon-btn:hover{background:var(--raised);color:var(--tx)}
+.icon-btn.on{background:var(--accent-soft);color:var(--accent)}
+
+/* ── topbar ── */
+.topbar{background:color-mix(in oklab,var(--ink) 85%, transparent) !important;
+  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:35;padding:11px 6px;margin:0 -6px 18px}
+.brand{color:var(--tx);font-size:16px;display:flex;align-items:center;gap:9px}
+.brand small{color:var(--tx3);font-weight:400}
+.brand-gem{width:22px;height:22px;border-radius:6px;background:var(--accent) !important;background-image:none !important;position:relative}
+.brand-gem::after{content:'';position:absolute;inset:5px;border-radius:2px;background:var(--ink) !important}
+
+/* ── calendar ── */
+.cal-grid{gap:7px}
+.cell{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:none !important;transition:background .14s ease,border-color .14s ease}
+.cell:hover{background:var(--raised);border-color:var(--line2);transform:none !important}
+.cell-today{border-color:var(--accent) !important;box-shadow:inset 0 0 0 1px var(--accent) !important}
+.cell-date{font-weight:550}
+.cell-today .cell-date{color:var(--accent)}
+.cell-dayoff{background:repeating-linear-gradient(-45deg,var(--panel) 0 6px,var(--raised) 6px 7px)}
+.dow{color:var(--tx3);letter-spacing:.14em}
+
+/* ── rings ── */
+.ring-track{stroke:var(--line)}
+.st-done{stroke:var(--ok)} .st-part{stroke:var(--info)} .st-over{stroke:var(--warn)} .st-todo{stroke:var(--line2)}
+
+/* ── pills / chips / tags ── */
+.pill{border:1px solid var(--line2);background:var(--raised);border-radius:99px;font-weight:600;padding:4px 12px}
+.pill-done{color:var(--ok);border-color:color-mix(in oklab,var(--ok) 35%,var(--line2));background:color-mix(in oklab,var(--ok) 10%,transparent)}
+.pill-part{color:var(--info);border-color:color-mix(in oklab,var(--info) 35%,var(--line2));background:color-mix(in oklab,var(--info) 10%,transparent)}
+.pill-over{color:var(--warn);border-color:color-mix(in oklab,var(--warn) 35%,var(--line2));background:color-mix(in oklab,var(--warn) 10%,transparent)}
+.pill-off{color:var(--tx3);background:transparent}
+.count{background:var(--raised);border:1px solid var(--line);color:var(--tx2);border-radius:99px;padding:2px 10px;font-size:12px}
+.kbd{background:var(--raised);border:1px solid var(--line2);color:var(--tx2);border-radius:6px;box-shadow:none;font-family:var(--mono)}
+.chip,.dchip{background:var(--raised);border:1px solid var(--line);color:var(--tx2);border-radius:8px}
+.dchip-on{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent)}
+.off-tag{color:var(--tx3);border:1px solid var(--line2);border-radius:99px}
+
+/* ── progress bar ── */
+.bar{background:var(--raised);height:6px;border-radius:99px;overflow:hidden}
+.bar-fill{border-radius:99px;transition:width .35s cubic-bezier(.4,0,.2,1)}
+
+/* ── task rows ── */
+.task{border-bottom:1px solid var(--line);transition:background .14s ease}
+.task:hover{background:color-mix(in oklab,var(--raised) 50%,transparent)}
+.task.t-now{background:var(--accent-soft);border-color:var(--accent-line);border-radius:var(--r-sm)}
+.cb{border:1.5px solid var(--line2);background:var(--raised);border-radius:7px;transition:background .14s ease,border-color .14s ease}
+.task.done .cb{background:var(--accent);border-color:var(--accent);color:#211a10}
+.task.done .t-title{color:var(--tx3)}
+.t-time,.task .mono{color:var(--tx2);font-variant-numeric:tabular-nums}
+
+/* ── overlays ── */
+.ov{background:rgba(10,9,13,.62);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+.ov-panel{background:var(--panel) !important;border:1px solid var(--line2);border-radius:var(--r-lg);
+  box-shadow:0 24px 60px -20px rgba(0,0,0,.6) !important}
+
+/* ── toasts ── */
+.toast{background:var(--raised) !important;border:1px solid var(--line2);color:var(--tx);border-radius:var(--r-sm);
+  box-shadow:0 12px 34px -12px rgba(0,0,0,.55) !important}
+.toast-ic svg{width:16px;height:16px}
+.toast-sync{border-color:var(--accent-line);background:color-mix(in oklab,var(--accent) 16%,var(--panel)) !important}
+.toast-sync .toast-ic{color:var(--accent)}
+.toast .btn,.toast button{color:var(--accent)}
+
+/* ── banners ── */
+.today-strip,.bk-box{background:var(--panel) !important;background-image:none !important;border:1px solid var(--line);border-radius:var(--r);box-shadow:none !important}
+.today-strip:hover{background:var(--raised);transform:none !important;border-color:var(--line2)}
+.pull-banner{background:color-mix(in oklab,var(--warn) 12%,transparent);border:1px dashed color-mix(in oklab,var(--warn) 45%,transparent);color:var(--warn);border-radius:var(--r-sm)}
+.nudgebar{background:color-mix(in oklab,var(--warn) 12%,transparent);border:1px solid color-mix(in oklab,var(--warn) 40%,transparent);color:var(--warn);border-radius:var(--r-sm)}
+.reconnect{background:color-mix(in oklab,var(--info) 12%,transparent);border:1px solid color-mix(in oklab,var(--info) 40%,transparent);color:var(--info);border-radius:var(--r-sm)}
+
+/* ── stats ── */
+.tiles{gap:12px}
+.stat{padding:14px;border-radius:var(--r)}
+.stat-val{font-size:22px}
+.heat-cell{background:var(--raised);border:1px solid var(--line);border-radius:4px}
+.hc-done{background:var(--ok);border-color:var(--ok)}
+.hc-part{background:color-mix(in oklab,var(--info) 55%,var(--panel));border-color:transparent}
+.hc-over{background:color-mix(in oklab,var(--warn) 50%,var(--panel));border-color:transparent}
+.hc-today{outline:2px solid var(--accent);outline-offset:1px}
+.hc-offday{background:repeating-linear-gradient(-45deg,var(--raised) 0 4px,var(--panel) 4px 6px)}
+.cb-track{background:var(--raised)}
+
+/* ── week view ── */
+.wk-col{background:var(--panel) !important;border:1px solid var(--line) !important;border-radius:var(--r)}
+.wk-col.wk-today{border-color:var(--accent) !important;box-shadow:none !important}
+.wk-task:hover{background:var(--raised)}
+.wk-tick{border:1.5px solid var(--line2);border-radius:6px}
+.wk-task.done .wk-tick{background:var(--accent);border-color:var(--accent);color:#211a10}
+.wk-name{color:var(--tx3)}
+
+/* ── auth / cloud ── */
+.cloud-pill{background:var(--raised);border:1px solid var(--line2);color:var(--tx2);border-radius:99px}
+.cloud-pill:hover{border-color:var(--line)}
+.cloud-pill.on .cp-dot{background:var(--ok)}
+.auth-tab{background:var(--raised);border:1px solid var(--line);color:var(--tx2);border-radius:var(--r-sm)}
+.auth-tab.on{background:var(--accent) !important;border-color:var(--accent) !important;color:#211a10}
+.acct-email{color:var(--tx)}
+
+/* ── settings misc ── */
+.note-dim{color:var(--tx3)}
+.hint{color:var(--tx3)}
+.empty{border:1px dashed var(--line2);border-radius:var(--r-sm);color:var(--tx3)}
+hr,.day-sub{border-color:var(--line)}
+.link-row a,a{color:var(--accent)}
+
+/* ── phone tab bar ── */
+@media (max-width:720px){
+  .tabbar{background:color-mix(in oklab,var(--ink) 90%,transparent) !important;
+    -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border-top:1px solid var(--line)}
+  .tab-i{color:var(--tx3)}
+  body[data-view=cal] .tab-i[data-view=cal],body[data-view=week] .tab-i[data-view=week],
+  body[data-view=day] .tab-i[data-view=day],body[data-view=stats] .tab-i[data-view=stats],
+  body[data-view=set] .tab-i[data-view=set]{color:var(--accent)}
+  .card{padding:15px}
+  .day-title{font-size:18px}
+  input,select,textarea{font-size:16px}   /* no iOS zoom */
+}
+
+/* ── motion: calm, purposeful ── */
+.pill-pulse{animation:none !important}
+.cloud-pill.syncing .cp-dot{animation:cpPulse 1.1s ease-in-out infinite}
+*{transition-duration:.14s}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+
+/* ── selection, scrollbar ── */
+::selection{background:var(--accent-soft)}
+*{scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
+*::-webkit-scrollbar{width:9px;height:9px}
+*::-webkit-scrollbar-thumb{background:var(--line2);border-radius:99px;border:2px solid var(--ink)}
+*::-webkit-scrollbar-track{background:transparent}
+
+/* ── focus ring ── */
 :is(button,[role=button],a,input,select,textarea,[tabindex="0"]):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 /* ── 15. Misc ─────────────────────────────────────────────────── */
