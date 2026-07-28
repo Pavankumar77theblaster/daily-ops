@@ -945,38 +945,43 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:no
    refined type scale, consistent 4px spacing rhythm, unified 1.75
    stroke icons, and polished states across every screen. This layer
    is authoritative and supersedes all earlier styling. ═══════════ */
+/* shared tokens (both themes) */
 :root{
-  /* surfaces — warm charcoal, layered by elevation */
-  --ink:#17161c;         /* app background — warm near-black   */
-  --panel:#201f27;       /* cards                              */
-  --raised:#2a2932;      /* inputs, hover, chips               */
-  --line:#332f3d;        /* borders                            */
-  --line2:#433e50;       /* stronger borders / tracks          */
-
-  /* text — warm off-whites */
-  --tx:#f0eef4;
-  --tx2:#a9a4b8;
-  --tx3:#736e82;
-
-  /* accent — warm amber, confident but not harsh */
-  --accent:#e0a458;
-  --accent-soft:color-mix(in oklab, var(--accent) 15%, transparent);
-  --accent-line:color-mix(in oklab, var(--accent) 42%, transparent);
-
-  /* status — tuned to sit in harmony with amber on charcoal */
-  --ok:#63c795;          /* done        */
-  --info:#6aa8e8;        /* in progress */
-  --warn:#e8994a;        /* overdue     */
-  --bad:#e57b78;         /* destructive */
-
   --sans:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,sans-serif;
   --mono:'JetBrains Mono',ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
   --display:'Sora',var(--sans);
-
   --r:14px; --r-sm:10px; --r-lg:18px;
   --sh:none; --sh-lg:none;
   --gap:16px;
+  color-scheme:dark;
 }
+/* ── DARK theme — "Warm Charcoal" (default) ── */
+:root, [data-theme="dark"]{
+  --ink:#17161c; --panel:#201f27; --raised:#2a2932; --line:#332f3d; --line2:#433e50;
+  --tx:#f0eef4; --tx2:#a9a4b8; --tx3:#736e82;
+  --accent:#e0a458;
+  --accent-soft:color-mix(in oklab, var(--accent) 15%, transparent);
+  --accent-line:color-mix(in oklab, var(--accent) 42%, transparent);
+  --ok:#63c795; --info:#6aa8e8; --warn:#e8994a; --bad:#e57b78;
+}
+/* ── LIGHT theme — "Warm Paper" ── */
+[data-theme="light"]{
+  color-scheme:light;
+  --ink:#f6f4ef; --panel:#ffffff; --raised:#efece5; --line:#e4e0d7; --line2:#d3cec2;
+  --tx:#2b2a26; --tx2:#6b6860; --tx3:#9c988d;
+  --accent:#b7802f;                 /* warmer amber that reads on white */
+  --accent-soft:color-mix(in oklab, var(--accent) 12%, transparent);
+  --accent-line:color-mix(in oklab, var(--accent) 40%, transparent);
+  --ok:#4f9d6f; --info:#4a86c5; --warn:#c9832f; --bad:#cf6b63;
+}
+[data-theme="light"] .btn-acc{color:#fff !important}
+[data-theme="light"] .task.done .cb,[data-theme="light"] .wk-task.done .wk-tick,
+[data-theme="light"] .auth-tab.on,[data-theme="light"] .hc-done{color:#fff !important}
+[data-theme="light"] .brand-gem::after{background:var(--panel) !important}
+[data-theme="light"] .topbar{background:color-mix(in oklab,var(--ink) 88%,transparent) !important}
+[data-theme="light"] .ov{background:rgba(43,42,38,.32)}
+[data-theme="light"] .ov-panel{box-shadow:0 20px 50px -18px rgba(43,42,38,.28) !important}
+[data-theme="light"] .toast{box-shadow:0 12px 34px -12px rgba(43,42,38,.25) !important}
 html,body{background:var(--ink) !important;background-image:none !important;color:var(--tx);
   font-family:var(--sans);font-size:14.5px;line-height:1.55;letter-spacing:.005em;
   -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
@@ -1151,6 +1156,15 @@ hr,.day-sub{border-color:var(--line)}
 
 /* ── focus ring ── */
 :is(button,[role=button],a,input,select,textarea,[tabindex="0"]):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* theme segmented control */
+.theme-seg{display:inline-flex;gap:4px;background:var(--raised);border:1px solid var(--line);border-radius:var(--r-sm);padding:3px}
+.seg-btn{display:inline-flex;align-items:center;gap:6px;background:transparent;border:none;color:var(--tx2);
+  font-family:var(--sans);font-size:13px;font-weight:550;padding:7px 14px;border-radius:8px;cursor:pointer;transition:background .14s ease,color .14s ease}
+.seg-btn svg{width:15px;height:15px}
+.seg-btn:hover{color:var(--tx)}
+.seg-btn.on{background:var(--accent);color:#211a10}
+[data-theme="light"] .seg-btn.on{color:#fff}
 
 /* ── 15. Misc ─────────────────────────────────────────────────── */
 .banner{
@@ -1486,6 +1500,15 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 function applyAccent() {
   document.documentElement.style.setProperty('--accent', S.settings.accent);
+}
+const THEME_KEY = 'dailyops.theme';
+function theme() { try { return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'; } catch (e) { return 'dark'; } }
+function applyTheme(t) {
+  const val = t === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', val);
+  try { localStorage.setItem(THEME_KEY, val); } catch (e) {}
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', val === 'light' ? '#f6f4ef' : '#17161c');
 }
 
 /* helpers to look things up */
@@ -2259,6 +2282,13 @@ function renderSettings() {
 
   <section class="card">
     <div class="card-h"><span class="eyebrow">Appearance</span></div>
+    <div class="add-row" style="align-items:center;margin-bottom:14px">
+      <span class="eyebrow" style="flex:none">Theme</span>
+      <div class="theme-seg" role="group" aria-label="Theme">
+        <button class="seg-btn ${theme() === 'dark' ? 'on' : ''}" data-act="set-theme" data-theme-val="dark">${ic('moon')} Dark</button>
+        <button class="seg-btn ${theme() === 'light' ? 'on' : ''}" data-act="set-theme" data-theme-val="light">${ic('target')} Light</button>
+      </div>
+    </div>
     <div class="swatches">
       ${SWATCHES.map(c => `<button class="swatch ${S.settings.accent === c ? 'swatch-on' : ''}"
           style="background:${c}" data-act="acc-swatch" data-c="${c}" aria-label="Accent ${c}"></button>`).join('')}
@@ -3014,6 +3044,7 @@ function doAct(act, el) {
       break;
     }
     case 'xfer-open': openTransfer(); break;
+    case 'set-theme': applyTheme(el.dataset.themeVal); renderSettings(); break;
     case 'open-sync': openSync(); break;
     case 'open-cloud': openCloud(); break;
     case 'auth-mode': authMode = el.dataset.m; openCloud(); break;
@@ -3478,6 +3509,7 @@ function route() {
 }
 window.addEventListener('hashchange', route);
 
+applyTheme(theme());   // set light/dark before first paint (persisted per device)
 applyAccent();
 if (!storageOK && !AS) $('#banner').classList.add('show');
 $('#tabbar').innerHTML = [
@@ -3520,6 +3552,7 @@ window.__ops = {
   persist, normalize, snapshotUndo, packState, unpackState, checkEodNudge, updateNowMarker,
   syncURL, importFromCode, get pendingImport() { return pendingImport; },
   get cloud() { return cloud; }, hasCfg, getCfg, persistLocalOnly, setCloudStatus, firstRuleHint,
+  theme, applyTheme,
 };
 </script>
 </body>
